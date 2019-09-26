@@ -1818,8 +1818,23 @@ void add_frame_count(char* filename, char* output_filename, int fps) {
     }
 }
 
-// void custom() {
-// }
+void custom() {
+    // fprintf(stderr, "%d\n", sizeof(clock_t));
+    // fprintf(stderr, "%d\n", sizeof(cudnnTensorDescriptor_t));
+    // fprintf(stderr, "%d\n", sizeof(cudnnFilterDescriptor_t));
+    // fprintf(stderr, "%d\n", sizeof(cudnnConvolutionDescriptor_t));
+    // fprintf(stderr, "%d\n", sizeof(cudnnConvolutionFwdAlgo_t));
+    // fprintf(stderr, "%d\n", sizeof(cudnnConvolutionBwdDataAlgo_t));
+    // fprintf(stderr, "%d\n", sizeof(cudnnConvolutionBwdFilterAlgo_t));
+    // fprintf(stderr, "%d\n", sizeof(int));
+    // tree* x = read_tree("data/9k.tree");
+    // fprintf(stderr, "%d\n", x->n);
+    // fprintf(stderr, "%d\n", x->groups);
+    // int i;
+    // for (i = 0; i < x->n; ++i) {
+    //     fprintf(stderr, "%d\n", x->child[i]);
+    // }
+}
 
 void run_detector(int argc, char **argv)
 {
@@ -1970,7 +1985,7 @@ void run_detector(int argc, char **argv)
         int fps = find_int_arg(argc, argv, "-fps", 30);
         add_frame_count(filename, prefix, fps);
     }
-    // else if(0==strcmp(argv[2], "custom")) {
-    //     custom();
-    // }
+    else if(0==strcmp(argv[2], "custom")) {
+        custom();
+    }
 }

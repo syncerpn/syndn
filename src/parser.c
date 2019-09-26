@@ -859,7 +859,7 @@ layer parse_channel_selective(list* options, size_params params, network* net) {
     return l;
 }
 
-learning_rate_policy get_policy(char *s)
+LEARNING_RATE_POLICY get_policy(char *s)
 {
     if (strcmp(s, "random")==0) return RANDOM;
     if (strcmp(s, "poly")==0) return POLY;

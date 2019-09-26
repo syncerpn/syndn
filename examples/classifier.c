@@ -103,7 +103,6 @@ void train_classifier(char *datacfg, char *cfgfile, char *weightfile, char* modu
 
         time = what_time_is_it_now();
         float loss = 0;
-
         if(ngpus == 1){
             loss = train_network(net, train);
         } else {
@@ -332,11 +331,16 @@ void validate_classifier_full(char *datacfg, char *filename, char *weightfile, c
     }
 }
 
-
-void validate_classifier_single(char *datacfg, char *filename, char *weightfile, char* modules)
+void validate_classifier_single(char *datacfg, char *filename, char *weightfile, char* modules, int batch)
 {
     int i, j;
-    network *net = load_network(filename, weightfile, modules, 0, 1);
+    if (batch <= 1) {
+        fprintf(stderr, "Default validation: batch = 1\n");
+        batch = 1;
+    } else {
+        fprintf(stderr, "Parallel validation: batch = %d\n", batch);
+    }
+    network *net = load_network(filename, weightfile, modules, 0, batch);
 
     if (net->pre_transformable) {
         net->pre_transform = 1;
@@ -364,42 +368,111 @@ void validate_classifier_single(char *datacfg, char *filename, char *weightfile,
     int *indexes = calloc(topk, sizeof(int));
     fprintf(stderr, "\n");
 
-    for(i = 0; i < m; ++i){
-        int class = -1;
-        char *path = paths[i];
-	    
-	    char* imagename = basecfg(path);
-	    int label_length = 0; //select longest string, guarantee subtring in string
+    double start = what_time_is_it_now();
 
-        for(j = 0; j < classes; ++j){
-	        if(strstr(imagename, labels[j])){
-	            if (strlen(labels[j]) > label_length) {
-	                label_length = strlen(labels[j]);
-	                class = j;
-	            }
-	        }
+    if (batch == 1) {
+        for(i = 0; i < m; ++i){
+            int class = -1;
+            char *path = paths[i];
+            
+            char* imagename = basecfg(path);
+            int label_length = 0; //select longest string, guarantee subtring in string
+
+            for(j = 0; j < classes; ++j){
+                if(strstr(imagename, labels[j])){
+                    if (strlen(labels[j]) > label_length) {
+                        label_length = strlen(labels[j]);
+                        class = j;
+                    }
+                }
+            }
+            free(imagename);
+            image im = load_image_color(paths[i], 0, 0);
+            image crop = center_crop_image(im, net->w, net->h);
+
+            float *pred = network_predict(net, crop.data);
+            if(net->hierarchy) hierarchy_predictions(pred, net->outputs, net->hierarchy, 1, 1);
+
+            free_image(im);
+            free_image(crop);
+            top_k(pred, classes, topk, indexes);
+
+            if(indexes[0] == class) avg_acc += 1;
+            for(j = 0; j < topk; ++j){
+                if(indexes[j] == class) avg_topk += 1;
+            }
+            fprintf(stderr, "\033[1A");
+            fprintf(stderr, "\033[K");
+            fprintf(stderr, "%6d/%6d: top 1: %f, top %d: %f\n", i+1, m, avg_acc/(i+1), topk, avg_topk/(i+1));
         }
-        free(imagename);
-        image im = load_image_color(paths[i], 0, 0);
-        image crop = center_crop_image(im, net->w, net->h);
+    } else {
+        load_args args = {0};
+        args.hierarchy = net->hierarchy;
 
-        float *pred = network_predict(net, crop.data);
-        if(net->hierarchy) hierarchy_predictions(pred, net->outputs, net->hierarchy, 1, 1);
+        args.w = net->w;
+        args.h = net->h;
+        args.type = IMAGE_DATA_CROP;
+        args.labels = labels;
+        args.classes = classes;
 
-        free_image(im);
-        free_image(crop);
-        top_k(pred, classes, topk, indexes);
+        image* val = calloc(batch, sizeof(image));
+        image* val_resized = calloc(batch, sizeof(image));
+        image* buf = calloc(batch, sizeof(image));
+        image* buf_resized = calloc(batch, sizeof(image));
 
-        if(indexes[0] == class) avg_acc += 1;
-        for(j = 0; j < topk; ++j){
-            if(indexes[j] == class) avg_topk += 1;
+        float* buf_truth = calloc(classes*batch, sizeof(float));
+        float* X = calloc(net->w*net->h*3*batch, sizeof(float));
+        int* y = calloc(batch, sizeof(int));
+
+        pthread_t *thr = calloc(batch, sizeof(pthread_t));
+        i = 0;
+        int t;
+        for (t = 0; t < batch; ++t) {
+            args.path = paths[i+t];
+            args.im = &buf[t];
+            args.resized = &buf_resized[t];
+            args.truth = buf_truth+t*classes;
+            thr[t] = load_data_in_thread(args);
         }
-        fprintf(stderr, "\033[1A");
-        fprintf(stderr, "\033[K");
+        for (i = batch; i < m+batch; i += batch) {
+            for (t = 0; t < batch && i+t-batch < m; ++t) {
+                fprintf(stderr, "\033[1A");
+                fprintf(stderr, "\033[K");
+                fprintf(stderr, "Validated: %d/%d\n", i+t-batch+1, m);
+                pthread_join(thr[t], 0);
+                val[t] = buf[t];
+                val_resized[t] = buf_resized[t];
+                memcpy(X + t*net->w*net->h*3, val_resized[t].data, net->w*net->h*3*sizeof(float));
+                for (j = 0; j < classes; ++j) {
+                    if (buf_truth[t*classes+j] == 1) {
+                        y[t] = j;
+                    }
+                }
+            }
 
-        // fprintf(stderr, "%s, %d, %f, %f\n", paths[i], class, pred[0], pred[1]);
-        fprintf(stderr, "%6d/%6d: top 1: %f, top %d: %f\n", i+1, m, avg_acc/(i+1), topk, avg_topk/(i+1));
+            for (t = 0; t < batch && i+t < m; ++t) {
+                args.path = paths[i+t];
+                args.im = &buf[t];
+                args.resized = &buf_resized[t];
+                args.truth = buf_truth+t*classes;
+                thr[t] = load_data_in_thread(args);
+            }
+            float* pred = network_predict(net, X);
+            for (t = 0; t < batch && i+t-batch < m; ++t) {
+                top_k(pred+t*classes, classes, topk, indexes);
+
+                if(indexes[0] == y[t]) avg_acc += 1;
+                for(j = 0; j < topk; ++j){
+                    if(indexes[j] == y[t]) avg_topk += 1;
+                }
+                free_image(val[t]);
+                free_image(val_resized[t]);
+            }
+
+        }
+        fprintf(stderr, "top 1: %f, top %d: %f\n", avg_acc/m, topk, avg_topk/m);
     }
+    fprintf(stderr, "Total Classification Time: %f Seconds\n", what_time_is_it_now() - start);
 }
 
 void validate_classifier_multi(char *datacfg, char *cfg, char *weights, char* modules)
@@ -873,7 +946,8 @@ void run_classifier(int argc, char **argv)
     }
 
     else if(0==strcmp(argv[2], "valid")) {
-        validate_classifier_single(data, cfg, weights, modules);
+        int batch = find_int_arg(argc, argv, "-batch", 1);
+        validate_classifier_single(data, cfg, weights, modules, batch);
     }
 
     else if(0==strcmp(argv[2], "validmulti")) {

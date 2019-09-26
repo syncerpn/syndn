@@ -478,7 +478,6 @@ void fill_truth(char *path, char **labels, int k, float *truth)
 {
     int i;
     memset(truth, 0, k*sizeof(float));
-    // int count = 0;
     
     char* filename = basecfg(path);
     int label_length = 0; //select longest string, guarantee subtring in string
@@ -489,13 +488,10 @@ void fill_truth(char *path, char **labels, int k, float *truth)
             if (strlen(labels[i]) > label_length) {
                 label_length = strlen(labels[i]);
                 label_index = i;
-                // ++count;
             }
         }
     }
-    // fprintf(stderr, "%s %s\n", filename, labels[label_index]);
     truth[label_index] = 1;
-    // if(count != 1 && (k != 1 || count != 0)) printf("Too many or too few labels: %d, %s\n", count, path);
     free(filename);
 }
 
@@ -917,6 +913,10 @@ void *load_thread(void *ptr)
     } else if (a.type == IMAGE_DATA){
         *(a.im) = load_image_color(a.path, 0, 0);
         *(a.resized) = resize_image(*(a.im), a.w, a.h);
+    } else if (a.type == IMAGE_DATA_CROP){
+        *(a.im) = load_image_color(a.path, 0, 0);
+        *(a.resized) = center_crop_image(*(a.im), a.w, a.h);
+        fill_truth(a.path, a.labels, a.classes, a.truth);
     } else if (a.type == LETTERBOX_DATA){
         *(a.im) = load_image_color(a.path, 0, 0);
         *(a.resized) = letterbox_image(*(a.im), a.w, a.h);

@@ -381,7 +381,7 @@ typedef struct layer{
     float* g_cpu;
     float* o_cpu;
     float* c_cpu;
-    float* dc_cpu; 
+    float* dc_cpu;
 
     struct layer *input_layer;
     struct layer *self_layer;
@@ -515,12 +515,10 @@ typedef struct layer{
     cudnnConvolutionBwdFilterAlgo_t bf_algo;
 } layer;
 
-void free_layer(layer);
-
 typedef enum {
     CONSTANT, STEP, EXP, POLY, STEPS, SIG, RANDOM,
     CYCLICAL, PULSE
-} learning_rate_policy;
+} LEARNING_RATE_POLICY;
 
 typedef struct network{
     //nghiant
@@ -541,7 +539,7 @@ typedef struct network{
     int subdivisions;
     layer *layers;
     float *output;
-    learning_rate_policy policy;
+    LEARNING_RATE_POLICY policy;
 
     float learning_rate;
     float momentum;
@@ -660,9 +658,9 @@ typedef struct{
 } data;
 
 typedef enum {
-    CLASSIFICATION_DATA, DETECTION_DATA, IMAGE_DATA, OLD_CLASSIFICATION_DATA, LETTERBOX_DATA, REGRESSION_DATA, SEGMENTATION_DATA, INSTANCE_DATA, ISEG_DATA,
+    CLASSIFICATION_DATA, DETECTION_DATA, IMAGE_DATA, IMAGE_DATA_CROP, OLD_CLASSIFICATION_DATA, LETTERBOX_DATA, REGRESSION_DATA, SEGMENTATION_DATA, INSTANCE_DATA, ISEG_DATA,
     LETTERBOX_DATA_8BIT, LETTERBOX_DATA_NO_TRUTH
-} data_type;
+} DATA_TYPE;
 
 typedef struct load_args{
     int threads;
@@ -702,10 +700,11 @@ typedef struct load_args{
     data *d;
     image *im;
     image *resized;
-    data_type type;
+    DATA_TYPE type;
     tree *hierarchy;
 
     char* label_dir;
+    float* truth;
 } load_args;
 
 typedef struct{
@@ -726,8 +725,13 @@ typedef struct list{
     node *back;
 } list;
 
+//layer.c
+void free_layer(layer);
+
 //tree.c
 tree *read_tree(char *filename);
+void hierarchy_predictions(float *predictions, int n, tree *hier, int only_leaves, int stride);
+void change_leaves(tree *t, char *leaf_list);
 
 //data.c
 pthread_t load_data(load_args args);
@@ -967,17 +971,10 @@ box float_to_box(float *f, int stride);
 void do_nms_obj(detection *dets, int total, int classes, float thresh);
 void do_nms_sort(detection *dets, int total, int classes, float thresh, NMS_MODE mode);
 
-//???
-void network_detect(network *net, image im, float thresh, float hier_thresh, float nms, detection *dets);
-
 //image_opencv.cpp
 image get_image_from_stream(void *p);
 void *open_video_stream(const char *f, int c, int w, int h, int fps);
 void make_window(char *name, int w, int h, int fullscreen);
-
-//tree.c
-void hierarchy_predictions(float *predictions, int n, tree *hier, int only_leaves, int stride);
-void change_leaves(tree *t, char *leaf_list);
 
 //list.c
 void **list_to_array(list *l);
