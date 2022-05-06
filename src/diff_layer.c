@@ -68,7 +68,7 @@ void resize_diff_layer(layer *l, network* net) {
 	l->h = l->out_h;
 	l->c = l->out_c;
 	l->inputs = l->outputs;
-
+	
     l->output = realloc(l->output, l->batch*l->outputs*sizeof(float));
     l->delta  = realloc(l->delta,  l->batch*l->outputs*sizeof(float));
 

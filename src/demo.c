@@ -18,10 +18,6 @@ static int demo_classes;
 static network *net;
 static image buff [3];
 static image buff_letter[3];
-//nms multiframe testing
-static detection** det_buf;
-static int* nboxes_buf;
-static int dbuff_index = 0;
 
 static int buff_index = 0;
 static void * cap;
@@ -65,8 +61,7 @@ void remember_network(network *net)
         }
     }
 }
-//branching
-//avg-style branch
+
 detection *avg_predictions(network *net, int *nboxes)
 {
     int i, j;
@@ -115,60 +110,6 @@ void *detect_in_thread(void *ptr)
     return 0;
 }
 
-//mf-style branch
-detection *mf_accum_predictions(network *net, int *nboxes)
-{
-    int i;
-    int count = 0;
-
-    if (nboxes_buf[dbuff_index % demo_frame]) free_detections(det_buf[dbuff_index % demo_frame], nboxes_buf[dbuff_index % demo_frame]);
-
-    det_buf[dbuff_index % demo_frame] = get_network_boxes(net, buff[0].w, buff[0].h, demo_thresh, demo_hier, 0, 1, nboxes_buf + (dbuff_index % demo_frame));
-
-    *nboxes = 0;
-	for (i = 0; i < demo_frame; ++i) {
-		*nboxes += nboxes_buf[(dbuff_index + i) % demo_frame];
-	}
-
-    detection *dets = calloc(*nboxes, sizeof(detection));
-    count = 0;
-    for (i = 0; i < demo_frame; ++i) {
-    	copy_detection(dets + count, det_buf[(dbuff_index + i) % demo_frame], net->layers[net->n - 1].classes, nboxes_buf[(dbuff_index + i) % demo_frame]);
-        count += nboxes_buf[(dbuff_index + i) % demo_frame];
-    }
-
-    return dets;
-}
-
-void *detect_mf_in_thread(void *ptr)
-{
-    running = 1;
-    float nms = .45;
-
-    layer l = net->layers[net->n-1];
-    float *X = buff_letter[(buff_index+2)%3].data;
-    network_predict(net, X);
-
-    detection *dets = 0;
-    int nboxes = 0;
-    dets = mf_accum_predictions(net, &nboxes);
-
-    if (nms > 0) do_nms_obj(dets, nboxes, l.classes, nms);
-
-    printf("\033[2J");
-    printf("\033[1;1H");
-    printf("\nFPS:%.1f\n",fps);
-    printf("Objects:\n\n");
-    image display = buff[(buff_index+2) % 3];
-    draw_detections(display, dets, nboxes, demo_thresh, demo_names, demo_alphabet, demo_classes);
-    free_detections(dets, nboxes);
-
-    demo_index = (demo_index + 1) % demo_frame;
-    running = 0;
-    return 0;
-}
-//end_branching
-
 void *fetch_in_thread(void *ptr)
 {
     free_image(buff[buff_index]);
@@ -210,21 +151,7 @@ void *display_in_thread(void *ptr)
     return 0;
 }
 
-void *display_loop(void *ptr)
-{
-    while(1){
-        display_in_thread(0);
-    }
-}
-
-void *detect_loop(void *ptr)
-{
-    while(1){
-        detect_in_thread(0);
-    }
-}
-
-void demo(char *cfgfile, char *weightfile, char* modules, float thresh, int cam_index, const char *filename, char **names, int classes, int delay, char *prefix, int avg_frames, float hier, int w, int h, int frames, int fullscreen, int cropx, int save_frame, int add_frame_count)
+void demo(char *cfgfile, char *weightfile, char* modules, float thresh, int cam_index, const char *filename, char **names, int classes, int delay, char *prefix, int avg_frames, float hier, int w, int h, int frames, int fullscreen, int cropx, int save_frame, int add_frame_count, char* line_150)
 {
     image **alphabet = load_alphabet();
     demo_frame = avg_frames;
@@ -307,6 +234,13 @@ void demo(char *cfgfile, char *weightfile, char* modules, float thresh, int cam_
             }
             save_image(buff[(buff_index + 1)%3], name);
         } else {
+            if (line_150) {
+                FILE* line_150_file = fopen(line_150, "r");
+                int x1, y1, x2, y2;
+                fscanf(line_150_file, "%d %d %d %d", &x1, &y1, &x2, &y2);
+                draw_line(&buff[(buff_index + 1)%3], x1, y1, x2, y2, 20, 20, 250, 3);
+            }
+
             if (add_frame_count) {
                 char info[256];
                 sprintf(info, "%6d", frame_count);
@@ -315,6 +249,7 @@ void demo(char *cfgfile, char *weightfile, char* modules, float thresh, int cam_
                 draw_label(buff[(buff_index + 1)%3], 10, 10, label, rgb);
                 free_image(label);
             }
+
             record_video(vwriter, buff[(buff_index + 1)%3]);
         }
         pthread_join(fetch_thread, 0);
@@ -323,89 +258,4 @@ void demo(char *cfgfile, char *weightfile, char* modules, float thresh, int cam_
     }
     if(!prefix) release_video_writer(vwriter);
     fprintf(stderr, "Frame counter: %d\n", frame_count);
-}
-
-void demo_mf(char *cfgfile, char *weightfile, char* modules, float thresh, int cam_index, const char *filename, char **names, int classes, int delay, char *prefix, int avg_frames, float hier, int w, int h, int frames, int fullscreen, int cropx, int save_frame, int add_frame_count)
-{
-    int i;
-
-    image **alphabet = load_alphabet();
-
-    demo_frame = avg_frames;
-    det_buf = calloc(demo_frame, sizeof(detection*));
-    nboxes_buf = calloc(demo_frame, sizeof(int));
-    for (i = 0; i < demo_frame; ++i) {
-    	nboxes_buf[i] = 0;
-    }
-
-    demo_names = names;
-    demo_alphabet = alphabet;
-    demo_classes = classes;
-    demo_thresh = thresh;
-    demo_hier = hier;
-    crop = cropx;
-    printf("Demo\n");
-    net = load_network(cfgfile, weightfile, modules, 0, 1);
-    pthread_t detect_thread;
-    pthread_t fetch_thread;
-
-
-    demo_total = size_network(net);
-
-    if(filename){
-        printf("video file: %s\n", filename);
-        cap = open_video_stream(filename, 0, 0, 0, 0);
-    }else{
-        cap = open_video_stream(0, cam_index, w, h, frames);
-    }
-
-    if(!cap) error("Couldn't connect to webcam.\n");
-
-    buff[0] = get_image_from_stream(cap);
-    buff[1] = copy_image(buff[0]);
-    buff[2] = copy_image(buff[0]);
-    buff_letter[0] = letterbox_image(buff[0], net->w, net->h);
-    buff_letter[1] = letterbox_image(buff[0], net->w, net->h);
-    buff_letter[2] = letterbox_image(buff[0], net->w, net->h);
-
-    int count = 0;
-    if(!prefix){
-        make_window("Demo", 1352, 1013, fullscreen);
-    } else {
-        char output_video[256];
-        sprintf(output_video, "%s.avi", prefix);
-        if (crop) {
-            if (crop > buff[0].w || crop > buff[0].h) {
-                crop = buff[0].w < buff[0].h ? buff[0].w : buff[0].h;
-            }
-            vwriter = open_video_writer(output_video, crop, crop, frames);
-        } else {
-            vwriter = open_video_writer(output_video, buff[0].w, buff[0].h, frames);
-        }
-        fprintf(stderr, "Saving results to %s @ %f\n", output_video, (float)frames);
-    }
-
-    demo_time = what_time_is_it_now();
-
-    while(!demo_done){
-        buff_index = (buff_index + 1) %3;
-        if(pthread_create(&fetch_thread, 0, fetch_in_thread, 0)) error("Thread creation failed");
-        if(pthread_create(&detect_thread, 0, detect_mf_in_thread, 0)) error("Thread creation failed");
-
-        if(!prefix){
-            fps = 1./(what_time_is_it_now() - demo_time);
-            demo_time = what_time_is_it_now();
-            display_in_thread(0);
-        }else if (save_frame) {
-            char name[256];
-            sprintf(name, "%s_%08d", prefix, count);
-            save_image(buff[(buff_index + 1)%3], name);
-        } else {
-            record_video(vwriter, buff[(buff_index + 1)%3]);
-        }
-        pthread_join(fetch_thread, 0);
-        pthread_join(detect_thread, 0);
-        ++count;
-    }
-    if(!prefix) release_video_writer(vwriter);
 }

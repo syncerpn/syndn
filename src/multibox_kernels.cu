@@ -241,7 +241,7 @@ extern "C" void forward_multibox_layer_gpu(const layer l, network net) {
     delta_multibox_b_gpu(l.output_gpu, l.weights_gpu, l.delta_gpu, net.truth_gpu, l.truths, l.batch, l.w, l.h, l.max_boxes, l.classes, l.ignore_thresh, l.truth_thresh, l.class_scale, l.coord_scale, l.noobject_scale, l.object_scale);
 
     cuda_pull_array(l.delta_gpu, l.delta, l.batch * l.outputs);
-    *(l.cost) = pow(mag_array(l.delta, l.outputs * l.batch), 2) * l.impact;
+    *(l.cost) = pow(mag_array(l.delta, l.outputs * l.batch), 2);
 }
 
 extern "C" void backward_multibox_layer_gpu(layer l, network net) {

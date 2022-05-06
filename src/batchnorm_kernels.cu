@@ -60,7 +60,7 @@ __global__ void make_scale_new_scalar_kernel(float scalar, float *scale, float* 
     scale_new[idx] = scalar * scale[idx] / sqrtf(var[idx] + .00001f);
 
     if (fps.type) {
-        scale_new[idx] = quantize_kernel(scale_new[idx], fps.nbit, fps.ibit, 0);
+        scale_new[idx] = quantize_kernel(scale_new[idx], fps.nbit, fps.ibit, fps.sign);
     }
 }
 
@@ -84,7 +84,7 @@ __global__ void make_bias_new_factor_kernel(float* bias, float* factor, float *s
     bias_new[idx] = bias[idx] - factor[idx] * scale[idx] / sqrtf(var[idx] + .00001f);
 
     if (fps.type) {
-        bias_new[idx] = quantize_kernel(bias_new[idx], fps.nbit, fps.ibit, 1);
+        bias_new[idx] = quantize_kernel(bias_new[idx], fps.nbit, fps.ibit, fps.sign);
     }
 }
 

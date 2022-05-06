@@ -149,4 +149,12 @@ void release_video_writer(void* vwriter) {
     vw->release();
 }
 
+void draw_line(image* im, int x1, int y1, int x2, int y2, float r, float g, float b, float width) {
+    Mat m = image_to_mat(*im);
+    line(m, Point(x1, y1), Point(x2, y2), Scalar(r, g, b), width);
+    free_image(*im);
+    *im = mat_to_image(m);
+    m.release();
+}
+
 }

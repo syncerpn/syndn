@@ -980,12 +980,53 @@ augment_args random_augment_args(image im, float angle, float aspect, int low, i
     return a;
 }
 
+//nghiant_norand
+augment_args random_augment_args_norand(image im, float angle, float aspect, int low, int high, int w, int h, int* random_array, int* random_used)
+{
+    int rnd_i = 0;
+    augment_args a = {0};
+    aspect = rand_scale_norand(aspect, random_array + rnd_i, &rnd_i);
+    int r = rand_int_norand(low, high, random_array + rnd_i, &rnd_i);
+    int min = (im.h < im.w*aspect) ? im.h : im.w*aspect;
+    float scale = (float)r / min;
+
+    float rad = rand_uniform_norand(-angle, angle, random_array + rnd_i, &rnd_i) * TWO_PI / 360.;
+
+    float dx = (im.w*scale/aspect - w) / 2.;
+    float dy = (im.h*scale - w) / 2.;
+    dx = rand_uniform_norand(-dx, dx, random_array + rnd_i, &rnd_i);
+    dy = rand_uniform_norand(-dy, dy, random_array + rnd_i, &rnd_i);
+
+    a.rad = rad;
+    a.scale = scale;
+    a.w = w;
+    a.h = h;
+    a.dx = dx;
+    a.dy = dy;
+    a.aspect = aspect;
+
+    *random_used += rnd_i;
+    return a;
+}
+//nghiant_norand_end
+
 image random_augment_image(image im, float angle, float aspect, int low, int high, int w, int h)
 {
     augment_args a = random_augment_args(im, angle, aspect, low, high, w, h);
     image crop = rotate_crop_image(im, a.rad, a.scale, a.w, a.h, a.dx, a.dy, a.aspect);
     return crop;
 }
+
+//nghiant_norand
+image random_augment_image_norand(image im, float angle, float aspect, int low, int high, int w, int h, int* random_array, int* random_used)
+{
+    int rnd_i = 0;
+    augment_args a = random_augment_args_norand(im, angle, aspect, low, high, w, h, random_array + rnd_i, &rnd_i);
+    image crop = rotate_crop_image(im, a.rad, a.scale, a.w, a.h, a.dx, a.dy, a.aspect);
+    *random_used += rnd_i;
+    return crop;
+}
+//nghiant_norand_end
 
 float three_way_max(float a, float b, float c)
 {
@@ -1119,6 +1160,110 @@ void hsv_to_rgb(image im)
             set_pixel(im, i, j, 2, b);
         }
     }
+}
+
+void rgb_to_xyz(image im) {
+	assert(im.c == 3);
+	int i, j;
+	float r, g, b;
+	float x, y, z;
+	for (j = 0; j < im.h; ++j) {
+		for (i = 0; i < im.w; ++i) {
+			r = get_pixel(im, i, j, 0);
+			g = get_pixel(im, i, j, 1);
+			b = get_pixel(im, i, j, 2);
+			r = r > 0.04045 ? powf((r + 0.055) / 1.055, 2.4) : r / 12.92;
+			g = g > 0.04045 ? powf((g + 0.055) / 1.055, 2.4) : g / 12.92;
+			b = b > 0.04045 ? powf((b + 0.055) / 1.055, 2.4) : b / 12.92;
+			r *= 100.f;
+			g *= 100.f;
+			b *= 100.f;
+			x = 0.4124564 * r + 0.3575761 * g + 0.1804375 * b;
+			y = 0.2126729 * r + 0.7151522 * g + 0.0721750 * b;
+			z = 0.0193339 * r + 0.1191920 * g + 0.9503041 * b;
+			set_pixel(im, i, j, 0, x);
+			set_pixel(im, i, j, 1, y);
+			set_pixel(im, i, j, 2, z);
+		}
+	}
+}
+
+void xyz_to_lab(image im) {
+	assert(im.c == 3);
+	int i, j;
+	float x, y, z;
+	float l, a, b;
+	for (j = 0; j < im.h; ++j) {
+		for (i = 0; i < im.w; ++i) {
+			x = get_pixel(im, i, j, 0) /  95.047;
+			y = get_pixel(im, i, j, 1) / 100.000;
+			z = get_pixel(im, i, j, 2) / 108.883;
+			x = x > 0.008856 ? powf(x, 1.f / 3.f) : (903.3 * x + 16.f) / 116.f;
+			y = y > 0.008856 ? powf(y, 1.f / 3.f) : (903.3 * y + 16.f) / 116.f;
+			z = z > 0.008856 ? powf(z, 1.f / 3.f) : (903.3 * z + 16.f) / 116.f;
+			l = (116.f * y - 16.f) / 100.f;
+			a = (500.f * (x - y)) / 128.f;
+			b = (200.f * (y - z)) / 128.f;
+			set_pixel(im, i, j, 0, l);
+			set_pixel(im, i, j, 1, a);
+			set_pixel(im, i, j, 2, b);
+		}
+	}
+}
+
+void rgb_to_lab(image im) {
+	rgb_to_xyz(im);
+	xyz_to_lab(im);
+}
+
+void lab_to_xyz(image im) {
+	assert(im.c == 3);
+	int i, j;
+	float x, y, z;
+	for (j = 0; j < im.h; ++j) {
+		for (i = 0; i < im.w; ++i) {
+			y = (get_pixel(im, i, j, 0) * 100.f + 16.f) / 116.f;
+			x = get_pixel(im, i, j, 1) * 128.f / 500.f + y;
+			z = y - get_pixel(im, i, j, 2) * 128.f / 200.f;
+			x = x > 0.206893 ? powf(x, 3.f) : (x - 16.f / 116.f) / 7.787;
+			y = y > 0.206893 ? powf(y, 3.f) : (y - 16.f / 116.f) / 7.787;
+			z = z > 0.206893 ? powf(z, 3.f) : (z - 16.f / 116.f) / 7.787;
+			x *=  95.047;
+			y *= 100.000;
+			z *= 108.883;
+			set_pixel(im, i, j, 0, x);
+			set_pixel(im, i, j, 1, y);
+			set_pixel(im, i, j, 2, z);
+		}
+	}
+}
+
+void xyz_to_rgb(image im) {
+	assert(im.c == 3);
+	int i, j;
+	float x, y, z;
+	float r, g, b;
+	for (j = 0; j < im.h; ++j) {
+		for (i = 0; i < im.w; ++i) {
+			x = get_pixel(im, i, j, 0) / 100.f;
+			y = get_pixel(im, i, j, 1) / 100.f;
+			z = get_pixel(im, i, j, 2) / 100.f;
+			r =  3.2404548 * x + -1.5371389 * y + -0.4985315 * z;
+			g = -0.9692664 * x +  1.8760109 * y +  0.0415561 * z;
+			b =  0.0556434 * x + -0.2040259 * y +  1.0572252 * z;
+			r = r > 0.0031308 ? 1.055 * powf(r, 1.f / 2.4) - 0.055 : 12.92 * r;
+			g = g > 0.0031308 ? 1.055 * powf(g, 1.f / 2.4) - 0.055 : 12.92 * g;
+			b = b > 0.0031308 ? 1.055 * powf(b, 1.f / 2.4) - 0.055 : 12.92 * b;
+			set_pixel(im, i, j, 0, r);
+			set_pixel(im, i, j, 1, g);
+			set_pixel(im, i, j, 2, b);
+		}
+	}
+}
+
+void lab_to_rgb(image im) {
+	lab_to_xyz(im);
+	xyz_to_rgb(im);
 }
 
 void grayscale_image_3c(image im)
@@ -1261,6 +1406,7 @@ void distort_image(image im, float hue, float sat, float val)
     constrain_image(im);
 }
 
+
 void random_distort_image(image im, float hue, float saturation, float exposure)
 {
     float dhue = rand_uniform(-hue, hue);
@@ -1268,6 +1414,19 @@ void random_distort_image(image im, float hue, float saturation, float exposure)
     float dexp = rand_scale(exposure);
     distort_image(im, dhue, dsat, dexp);
 }
+
+//nghiant_norand
+void random_distort_image_norand(image im, float hue, float saturation, float exposure, int* random_array, int* random_used)
+{
+    int rnd_i = 0;
+    float dhue = rand_uniform_norand(-hue, hue, random_array + rnd_i, &rnd_i);
+    float dsat = rand_scale_norand(saturation, random_array + rnd_i, &rnd_i);
+    float dexp = rand_scale_norand(exposure, random_array + rnd_i, &rnd_i);
+    distort_image(im, dhue, dsat, dexp);
+    *random_used += rnd_i;
+}
+//nghiant_norand_end
+
 
 void random_distort_image_extend(image im, float solarize, float posterize, float noise)
 {
@@ -1294,6 +1453,37 @@ void random_distort_image_extend(image im, float solarize, float posterize, floa
     }
     constrain_image(im);
 }
+
+//nghiant_norand
+void random_distort_image_extend_norand(image im, float solarize, float posterize, float noise, int* random_array, int* random_used)
+{
+    int rnd_i = 0;
+    float psolarize = rand_uniform_norand(0, 1, random_array + rnd_i, &rnd_i);
+    if (psolarize < solarize) {
+        float dsolarize  = rand_uniform_norand(0, 1, random_array + rnd_i, &rnd_i);
+        solarize_image(im, dsolarize);
+    }
+
+    float pposterize = rand_uniform_norand(0, 1, random_array + rnd_i, &rnd_i);
+    if (pposterize < posterize) {
+        int dposterize = rand_int_norand(16, 256, random_array + rnd_i, &rnd_i); //suggested by AutoAugment: 4 ~ 8 bits
+        posterize_image(im, dposterize);
+    }
+
+    int pnoise = random_array[rnd_i++] % 2;
+    if (noise > 0 && pnoise) {
+        int i;
+        unsigned int g_seed = random_array[rnd_i++]; //rand() is too slow; using fast rand trick
+        for(i = 0; i < im.w*im.h*im.c; ++i){
+            g_seed = (214013 * g_seed + 2531011);
+            im.data[i] = im.data[i] + (((g_seed >> 16) & 0xFF) / 127.5 - 1) * noise;
+        }
+    }
+    constrain_image(im);
+    *random_used += rnd_i;
+}
+//nghiant_norand_end
+
 
 void random_cutout_image(image im, cutout_args cutout) {
     if ((rand() % 100) < (int)(cutout.prob * 100.)) {
@@ -1326,6 +1516,43 @@ void random_cutout_image(image im, cutout_args cutout) {
         }
     }
 }
+
+//nghiant_norand
+void random_cutout_image_norand(image im, cutout_args cutout, int* random_array, int* random_used) {
+    int rnd_i = 0;
+    if ((random_array[rnd_i++] % 100) < (int)(cutout.prob * 100.)) {
+        int xc = random_array[rnd_i++] % im.w;
+        int yc = random_array[rnd_i++] % im.h;
+        
+        int cut_w = (random_array[rnd_i++] % cutout.max_w) + 1;
+        int cut_h = (random_array[rnd_i++] % cutout.max_h) + 1;
+        
+        int cut_xs = xc - cut_w/2;
+        int cut_xe = cut_xs + cut_w - 1;
+
+        cut_xs = cut_xs > 0 ? cut_xs : 0;
+        cut_xe = cut_xe < im.w ? cut_xe : im.w - 1;
+
+        int cut_ys = yc - cut_h/2;
+        int cut_ye = cut_ys + cut_h - 1;
+        
+        cut_ys = cut_ys > 0 ? cut_ys : 0;
+        cut_ye = cut_ye < im.h ? cut_ye : im.h - 1;
+
+        int i, j, k;
+
+        for (i = cut_xs; i <= cut_xe; ++i) {
+            for (j = cut_ys; j <= cut_ye; ++j) {
+                for (k = 0; k < im.c; ++k) {
+                    set_pixel(im, i, j, k, 0.5);
+                }
+            }
+        }
+    }
+    *random_used += rnd_i;
+}
+//nghiant_norand_end
+
 
 void saturate_exposure_image(image im, float sat, float exposure)
 {

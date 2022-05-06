@@ -171,7 +171,7 @@ void forward_iseg_layer(const layer l, network net)
         }
     }
 
-    *(l.cost) = pow(mag_array(l.delta, l.outputs * l.batch), 2) * l.impact;
+    *(l.cost) = pow(mag_array(l.delta, l.outputs * l.batch), 2);
 }
 
 void forward_iseg_layer_gpu(const layer l, network net)

@@ -1,0 +1,9 @@
+classes= 80
+train  = /home/nghiant/dataset/trainvalno5k.txt
+valid  = /home/nghiant/dataset/5k.txt
+names = data/coco.names
+backup = /home/nghiant/git/syndn/backup/
+eval=voc2010
+boxgt_dir = results/coco_gt
+results = results/coco
+info = info

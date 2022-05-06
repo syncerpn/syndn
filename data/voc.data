@@ -1,0 +1,9 @@
+classes= 20
+train  = /home/nghiant/dataset/train_voc_ori.txt
+valid  = /home/nghiant/dataset/2007_test.txt
+names = data/voc.names
+backup = backup
+boxgt_dir = results/voc_gt
+results = results/voc
+info = info
+eval=voc2007

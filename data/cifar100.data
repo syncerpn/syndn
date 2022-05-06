@@ -1,0 +1,7 @@
+classes=100
+train  = /home/nghiant/dataset/cifar100_train.list
+valid  = /home/nghiant/dataset/cifar100_test.list
+labels = data/cifar100.labels.list
+backup = backup/
+top = 2
+info = info

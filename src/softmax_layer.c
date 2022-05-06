@@ -74,6 +74,7 @@ void forward_softmax_layer_gpu(const layer l, network net)
             softmax_gpu(net.input_gpu, l.inputs/l.groups, l.batch, l.inputs, l.groups, l.inputs/l.groups, 1, l.temperature, l.output_gpu);
         }
     }
+
     if(net.truth && !l.noloss){
         softmax_x_ent_gpu(l.batch*l.inputs, l.output_gpu, net.truth_gpu, l.delta_gpu, l.loss_gpu);
         if(l.softmax_tree){
@@ -81,7 +82,7 @@ void forward_softmax_layer_gpu(const layer l, network net)
             mask_gpu(l.batch*l.inputs, l.loss_gpu, SECRET_NUM, net.truth_gpu, 0);
         }
         cuda_pull_array(l.loss_gpu, l.loss, l.batch*l.inputs);
-        l.cost[0] = l.impact * sum_array(l.loss, l.batch*l.inputs);
+        l.cost[0] = sum_array(l.loss, l.batch*l.inputs);
     }
 }
 

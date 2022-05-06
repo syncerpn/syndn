@@ -24,6 +24,11 @@ data load_data_detection(int n, char **paths, char* label_dir, int m, int w, int
 data load_data_letterbox_no_truth(int n, char **paths, int m, int w, int h, int boxes, int classes, float jitter, float hue, float saturation, float exposure, float angle, float* zoom, float hflip, float vflip, float solarize, float posterize, float noise, cutout_args cutout);
 data load_data_augment(char **paths, int n, int m, char **labels, int k, tree *hierarchy, int min, int max, int size, float angle, float aspect, float hue, float saturation, float exposure, int center, float hflip, float vflip, float solarize, float posterize, float noise, cutout_args cutout);
 data load_data_regression(char **paths, int n, int m, int classes, int min, int max, int size, float angle, float aspect, float hue, float saturation, float exposure, float hflip, float vflip, float solarize, float posterize, float noise, cutout_args cutout);
+
+//nghiant_norand
+data load_data_augment_norand(char **paths, int n, int m, char **labels, int k, tree *hierarchy, int min, int max, int size, float angle, float aspect, float hue, float saturation, float exposure, int center, float hflip, float vflip, float solarize, float posterize, float noise, cutout_args cutout, int* random_array, int* random_used);
+//nghiant_norand_end
+
 data get_data_part(data d, int part, int total);
 data get_random_data(data d, int num);
 data concat_datas(data *d, int n);

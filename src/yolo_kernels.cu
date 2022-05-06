@@ -384,7 +384,7 @@ extern "C" void forward_yolo_layer_gpu(const layer l, network net) {
     delta_yolo_a_gpu(l.output_gpu, l.delta_gpu, l.biases_gpu, l.mask_gpu, net.truth_gpu, l.truths, l.skip_index_gpu, l.batch, l.w, l.h, l.n, l.max_boxes, l.classes, net.w, net.h, l.ignore_thresh, l.truth_thresh, l.map_gpu, l.class_scale, l.coord_scale, l.noobject_scale, l.object_scale, l.softmax, l.background, l.warmup, *(net.seen));
     delta_yolo_b_gpu(l.output_gpu, l.delta_gpu, l.biases_gpu, l.mask_gpu, net.truth_gpu, l.truths, l.skip_index_gpu, l.total, l.batch, l.w, l.h, l.n, l.max_boxes, l.classes, net.w, net.h, l.map_gpu, l.class_scale, l.coord_scale, l.object_scale, l.softmax, l.background, l.rescore, l.bias_match);
     cuda_pull_array(l.delta_gpu, l.delta, l.batch * l.outputs);
-    *(l.cost) = pow(mag_array(l.delta, l.outputs * l.batch), 2) * l.impact;
+    *(l.cost) = pow(mag_array(l.delta, l.outputs * l.batch), 2);
 }
 
 extern "C" void backward_yolo_layer_gpu(const layer l, network net) {

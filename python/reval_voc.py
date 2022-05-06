@@ -37,7 +37,7 @@ def parse_args():
     args = parser.parse_args()
     return args
 
-def get_voc_results_file_template(image_set, out_dir = 'results'):
+def get_voc_results_file_template(image_set, out_dir = 'results/voc/'):
     filename = 'comp4_det_' + image_set + '_{:s}.txt'
     path = os.path.join(out_dir, filename)
     return path

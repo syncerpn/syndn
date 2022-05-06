@@ -38,7 +38,11 @@ if __name__ == '__main__':
 			n_loss = np.fromfile(f, np.int32, 1)
 			sub_loss_id = np.fromfile(f, np.int32, n_loss[0])
 			losses = np.fromfile(f, np.float32, -1)
-			losses = np.transpose(np.reshape(losses,(-1,n_loss[0])))
+
+		if (losses.shape[0] % n_loss[0] != 0):
+			cutoff = losses.shape[0] % n_loss[0]
+			losses = losses[0:losses.shape[0]-cutoff]
+		losses = np.transpose(np.reshape(losses,(-1,n_loss[0])))
 
 		miter = siter + losses.shape[1]
 		t = np.arange(siter,miter,1)

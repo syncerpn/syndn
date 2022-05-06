@@ -19,24 +19,21 @@ void transform_weights(float *weights, int n, int size, float *tran_weights, wei
     switch(wts.type){
         case WTS_MAX_SHIFTER:
             make_shifting_weights_max_gpu(weights, n, size, tran_weights, q_coeff, n_coeff, wts.num_level % 2);
-            return;
+            break;
         case WTS_MEAN_SHIFTER:
             make_shifting_weights_mean_gpu(weights, n, size, tran_weights, q_coeff, n_coeff, wts.num_level % 2);
-            return;
-        case WTS_UNIFORM:
-            uniform_quantize_weights_gpu(weights, n*size, tran_weights, wts.step_size, q_coeff, n_coeff, wts.num_level % 2);
-            return;
-        case WTS_VALUE_AWARE:
-            make_value_aware_weights_gpu(weights, n, size, tran_weights, wts.large_threshold, wts.step_size, q_coeff, n_coeff);
-            return;
+            break;
         case WTS_SHIFTER:
-            make_shifting_weights_gpu(weights, n*size, tran_weights, q_coeff, n_coeff, wts.num_level % 2);
-            return;
+            make_shifting_weights_gpu(weights, n * size, tran_weights, q_coeff, n_coeff, wts.num_level % 2);
+            break;
+        case WTS_UNIFORM:
+            uniform_quantize_weights_gpu(weights, n * size, tran_weights, wts.step_size, q_coeff, n_coeff, wts.num_level % 2);
+            break;
         case WTS_CYCLE:
-            make_cycle_weights_gpu(weights, n*size, tran_weights, wts.num_level, wts.step_size);
-            return;
+            make_cycle_weights_gpu(weights, n * size, tran_weights, wts.num_level, wts.step_size);
+            break;
         case WTS_NONE:
-            return;
+            break;
     }
 }
 
@@ -47,9 +44,9 @@ void forward_convolutional_layer_gpu(layer l, network net)
     if (!net.pre_transform) {
         transform_weights(l.weights_gpu, l.n, l.c/l.groups*l.size*l.size, l.tran_weights_gpu, l.weight_transform, l.q_coeff_gpu, l.n_coeff);
     }
-
-    if (l.weight_transform.type) swap_weight_transform(&l);
     
+    if (l.weight_transform.type) swap_weight_transform(&l);
+
     float one = 1;
     cudnnConvolutionForward(cudnn_handle(),
                 &one,
@@ -67,10 +64,11 @@ void forward_convolutional_layer_gpu(layer l, network net)
 
     if (l.batch_normalize) forward_batchnorm_layer_gpu(l, net);
     else add_bias_gpu(l.output_gpu, l.biases_gpu, l.batch, l.n, l.out_w*l.out_h);
-
+    
     activate_array_gpu(l.output_gpu, l.outputs*l.batch, l.activation);
 
     if (l.quantization.type) quantize_array_forward_gpu(l.output_gpu, l.outputs*l.batch, l.quantization);
+
     if (l.weight_transform.type) swap_weight_transform(&l);
 }
 
@@ -121,11 +119,12 @@ void backward_convolutional_layer_gpu(layer l, network net)
     if(l.smooth) smooth_layer(l, 5, l.smooth);
 
     if(l.quantization.type) quantize_array_backward_gpu(l.output_gpu, l.outputs*l.batch, l.quantization, l.delta_gpu);
+
     gradient_array_gpu(l.output_gpu, l.outputs*l.batch, l.activation, l.delta_gpu);
 
     if(l.batch_normalize) backward_batchnorm_layer_gpu(l, net);
     else backward_bias_gpu(l.bias_updates_gpu, l.delta_gpu, l.batch, l.n, l.out_w*l.out_h);
-
+    
     float one = 1;
     cudnnConvolutionBackwardFilter(cudnn_handle(),
             &one,
@@ -142,10 +141,10 @@ void backward_convolutional_layer_gpu(layer l, network net)
             l.weight_updates_gpu);
 
     if(net.delta_gpu){
+        
         if(l.weight_transform.type) swap_weight_transform(&l);
-        //nghiant_20190321: add impact factor to the delta flowing to the data layer
         cudnnConvolutionBackwardData(cudnn_handle(),
-                &(l.impact), //&(one),
+                &(l.impact),
                 l.weightDesc,
                 l.weights_gpu,
                 l.ddstTensorDesc,

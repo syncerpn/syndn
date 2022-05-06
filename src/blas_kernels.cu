@@ -465,6 +465,12 @@ __global__ void scal_kernel(int N, float ALPHA, float *X, int INCX)
     if(i < N) X[i*INCX] *= ALPHA;
 }
 
+__global__ void floorf_kernel(int N, float *X, int INCX)
+{
+    int i = (blockIdx.x + blockIdx.y*gridDim.x) * blockDim.x + threadIdx.x;
+    if(i < N) X[i*INCX] = floorf(X[i*INCX]);
+}
+
 __global__ void fill_kernel(int N, float ALPHA, float *X, int INCX)
 {
     int i = (blockIdx.x + blockIdx.y*gridDim.x) * blockDim.x + threadIdx.x;
@@ -719,6 +725,12 @@ extern "C" void add_gpu(int N, float ALPHA, float * X, int INCX)
 extern "C" void scal_gpu(int N, float ALPHA, float * X, int INCX)
 {
     scal_kernel<<<cuda_gridsize(N), BLOCK>>>(N, ALPHA, X, INCX);
+    check_error(cudaPeekAtLastError());
+}
+
+extern "C" void floorf_gpu(int N, float * X, int INCX)
+{
+    floorf_kernel<<<cuda_gridsize(N), BLOCK>>>(N, X, INCX);
     check_error(cudaPeekAtLastError());
 }
 
@@ -1006,7 +1018,7 @@ __device__ void softmax_device(float *input, int n, float temp, int stride, floa
     float sum = 0;
     float largest = -INFINITY;
     for(i = 0; i < n; ++i){
-        int val = input[i*stride];
+        float val = input[i*stride]; //nghiant_20191105: int??? should it be float instead?? -> changed to float
         largest = (val>largest) ? val : largest;
     }
     for(i = 0; i < n; ++i){

@@ -17,6 +17,7 @@ void *open_video_stream(const char *f, int c, int w, int h, int fps);
 image get_image_from_stream(void *p);
 image load_image_cv(char *filename, int channels);
 int show_image_cv(image im, const char* name, int ms);
+void draw_line(image* im, int x1, int y1, int x2, int y2, float r, float g, float b, float width);
 
 float get_color(int c, int x, int max);
 void draw_box(image a, int x1, int y1, int x2, int y2, float r, float g, float b);
@@ -28,6 +29,13 @@ image rotate_crop_image(image im, float rad, float s, int w, int h, float dx, fl
 image random_crop_image(image im, int w, int h);
 image random_augment_image(image im, float angle, float aspect, int low, int high, int w, int h);
 augment_args random_augment_args(image im, float angle, float aspect, int low, int high, int w, int h);
+
+//nghiant_norand
+image random_crop_image_norand(image im, int w, int h, int* random_array, int* random_used);
+image random_augment_image_norand(image im, float angle, float aspect, int low, int high, int w, int h, int* random_array, int* random_used);
+augment_args random_augment_args_norand(image im, float angle, float aspect, int low, int high, int w, int h, int* random_array, int* random_used);
+//nghiant_norand
+
 void letterbox_image_into(image im, int w, int h, image boxed);
 image resize_max(image im, int max);
 void translate_image(image m, float s);
@@ -41,6 +49,15 @@ void rgb_to_hsv(image im);
 void hsv_to_rgb(image im);
 void yuv_to_rgb(image im);
 void rgb_to_yuv(image im);
+
+
+void rgb_to_xyz(image im);
+void xyz_to_lab(image im);
+void rgb_to_lab(image im);
+
+void lab_to_xyz(image im);
+void xyz_to_rgb(image im);
+void lab_to_rgb(image im);
 
 //gpu kernels
 void rgb_to_hsv_gpu(float* im_data, int w, int h, int c);

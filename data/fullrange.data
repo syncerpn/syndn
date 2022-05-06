@@ -1,0 +1,8 @@
+classes= 80
+train  = /home/nghiant/dataset/train_voc_ori.txt
+valid  = /home/nghiant/dataset/fullrange_list.txt
+names = data/coco.names
+backup = backup
+boxgt_dir = results/fullrange_gt
+results = results/fullrange
+info = info

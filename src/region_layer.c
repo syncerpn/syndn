@@ -246,7 +246,7 @@ void forward_region_layer(const layer l, network net)
             delta_region_class(l.output, l.delta, class_index, class, l.classes, l.softmax_tree, l.class_scale, l.w*l.h, !l.softmax);
         }
     }
-    *(l.cost) = pow(mag_array(l.delta, l.outputs * l.batch), 2) * l.impact;
+    *(l.cost) = pow(mag_array(l.delta, l.outputs * l.batch), 2);
 }
 
 void correct_region_boxes(detection *dets, int n, int w, int h, int netw, int neth, int relative)

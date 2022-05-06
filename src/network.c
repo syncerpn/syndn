@@ -39,6 +39,7 @@
 #include "quantization_layer.h"
 #include "diff_layer.h"
 #include "channel_selective_layer.h"
+#include "partial_layer.h"
 #include "initializer.h"
 
 load_args get_base_args(network *net)
@@ -255,6 +256,8 @@ char *get_layer_string(LAYER_TYPE a)
             return "diff";
         case CHANNEL_SELECTIVE:
             return "channel_selective";
+        case PARTIAL:
+            return "partial";
             //nghiant_end
         default:
             break;
@@ -324,6 +327,73 @@ float train_network(network *net, data d)
     //nghiant: multi loss terms; averaging
     for (il = 0; il < net->n_loss; ++il) {
     	net->sub_loss[il] /= (n*batch);
+    }
+
+    return (float)sum/(n*batch);
+}
+
+float train_network_datum_slimmable(network *net)
+{
+    *net->seen += net->batch;
+    net->train = 1;
+    
+    float* input_backup = net->input;
+
+    int i, j;
+    float error = 0;
+    for (i = 0; i < 4; ++i) {
+        fprintf(stderr, "--Controller %d: ", i);
+        weight_transform_scheme wts = {0};
+        if (i == 0) {
+            wts.type = WTS_NONE;
+            wts.num_level = 0;
+        } else if (i == 1) {
+            wts.type = WTS_MAX_SHIFTER;
+            wts.num_level = 4;
+        } else if (i == 2) {
+            wts.type = WTS_MAX_SHIFTER;
+            wts.num_level = 8;
+        } else if (i == 3) {
+            wts.type = WTS_MAX_SHIFTER;
+            wts.num_level = 16;
+        }
+        net->input = input_backup;
+        for (j = 0; j < net->n; ++j) {
+            if (j != 0 && j != net->n-2 && net->layers[j].type == CONVOLUTIONAL) {
+                assign_weight_transform_convolutional_layer(&(net->layers[j]), wts);
+            }
+        }
+        forward_network(net);
+        backward_network(net);
+        error += *net->cost;
+    }
+    if(((*net->seen)/net->batch)%net->subdivisions == 0) update_network(net);
+    return error;
+}
+
+float train_network_slimmable(network *net, data d)
+{
+    assert(d.X.rows % net->batch == 0);
+    int batch = net->batch;
+    int n = d.X.rows / batch;
+
+    int i;
+    float sum = 0;
+    //nghiant: multi loss terms; reset first
+    int il;
+    for (il = 0; il < net->n_loss; ++il) {
+        net->sub_loss[il] = 0;
+    }
+
+    for(i = 0; i < n; ++i){
+        get_next_batch(d, batch, i*batch, net->input, net->truth);
+        float err = train_network_datum_slimmable(net);
+        sum += err;
+    }
+
+    //nghiant: multi loss terms; averaging
+    for (il = 0; il < net->n_loss; ++il) {
+        net->sub_loss[il] /= (n*batch);
     }
 
     return (float)sum/(n*batch);
@@ -597,7 +667,8 @@ layer get_network_output_layer(network *net)
 {
     int i;
     for(i = net->n - 1; i >= 0; --i){
-        if(net->layers[i].type != COST || net->layers[i].type != DIFF) break;
+        if(net->layers[i].type == COST || net->layers[i].type == DIFF) continue;
+        else break;
     }
     return net->layers[i];
 }
@@ -662,6 +733,7 @@ void forward_network(network *netp)
             net.truth = l.output;
         }
     }
+
     if (!net.train) pull_network_output(netp);
     calc_network_cost(netp);
 }

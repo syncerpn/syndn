@@ -41,6 +41,7 @@
 #include "multibox_layer.h"
 #include "diff_layer.h"
 #include "channel_selective_layer.h"
+#include "partial_layer.h"
 #include "initializer.h"
 
 typedef struct{
@@ -94,6 +95,7 @@ LAYER_TYPE string_to_layer_type(char * type)
     if (strcmp(type, "[multibox]")==0) return MULTIBOX;
     if (strcmp(type, "[diff]")==0) return DIFF;
     if (strcmp(type, "[channel_selective]")==0) return CHANNEL_SELECTIVE;
+    if (strcmp(type, "[partial]")==0) return PARTIAL;
     return BLANK;
 }
 
@@ -244,16 +246,17 @@ layer parse_convolutional(list *options, size_params params)
     qs.root = option_find_float_quiet(options, "qs_root", 0.0);
     qs.zero_center = option_find_int_quiet(options, "qs_zero_center", 0);
 
-    char *weight_transform_s = option_find_str_quiet(options, "weight_transform_scheme", "wts_none");
+    char* type = option_find_str_quiet(options, "weight_transform_scheme", "wts_none");
     weight_transform_scheme wts = {0};
-    wts.type = get_weight_transform_scheme(weight_transform_s);
+    wts.type = get_weight_transform_scheme(type);
     wts.step_size = option_find_float_quiet(options, "wts_step_size", 0.125);
-    wts.num_level = option_find_int_quiet(options, "wts_num_level", 8);
-    wts.large_threshold = option_find_float_quiet(options, "wts_large_threshold", 0.1);
+    wts.num_level = option_find_int_quiet(options, "wts_num_level", 64);
     wts.first_shifting_factor = option_find_int_quiet(options, "wts_first_shifting_factor", 0);
-    //nghiant_end
 
-    layer l = make_convolutional_layer(batch,h,w,c,n,dilation,groups,size,stride,padding,activation, batch_normalize, wts, params.net->optim, qs);
+    layer l = make_convolutional_layer(batch,h,w,c,n,dilation,groups,size,stride,padding,activation, batch_normalize, params.net->optim);
+
+    assign_weight_transform_convolutional_layer(&l, wts);
+    assign_quantization_convolutional_layer(&l, qs);
 
     l.flipped = option_find_int_quiet(options, "flipped", 0);
 
@@ -512,8 +515,24 @@ layer parse_diff(list *options, size_params params, network* net)
     option_find_int_series(options, "skip_index", &skip_list_length, &skip_list);
 
     layer l = make_diff_layer(net, params.batch, truth_layer, learn_layer, type, skip_list, skip_list_length);
-    l.ignore_thresh = option_find_float(options, "ignore_thresh", 0);
+    l.mask_layer_softmax = option_find_int(options, "mask_layer_softmax", -1);
 
+    return l;
+}
+
+layer parse_partial(list *options, size_params params, network* net)
+{
+    int src_layer = option_find_int_quiet(options, "layer", -1);
+    src_layer = (src_layer < 0) ? params.index + src_layer : src_layer;
+
+    int offset_w = option_find_int_quiet(options, "offset_w", 0);
+    int offset_h = option_find_int_quiet(options, "offset_h", 0);
+    int offset_c = option_find_int_quiet(options, "offset_c", 0);
+    int des_w = option_find_int(options, "w", 0);
+    int des_h = option_find_int(options, "h", 0);
+    int des_c = option_find_int(options, "c", 0);
+
+    layer l = make_partial_layer(net, params.batch, src_layer, offset_w, offset_h, offset_c, des_w, des_h, des_c);
     return l;
 }
 
@@ -1126,10 +1145,13 @@ network *parse_network_cfg(char *filename, int batch)
             l = parse_diff(options, params, net);
         }else if(lt == CHANNEL_SELECTIVE){
             l = parse_channel_selective(options, params, net);
+        }else if(lt == PARTIAL){
+            l = parse_partial(options, params, net);
         }else{
             fprintf(stderr, "Type not recognized: %s\n", s->type);
         }
         sprintf(default_name, "layer_%d", params.index);
+        l.self_index = params.index;
         sprintf(l.name, "%s", option_find_str_quiet(options, "name", default_name));
         l.frozen = option_find_int_quiet(options, "frozen", 0);
         l.root_connect = root_connect;
@@ -1775,7 +1797,10 @@ void print_layer(layer l) {
             else fprintf(stderr, "upsample\033[0m           %2dx  %4d x%4d x%4d   ->  %4d x%4d x%4d\n", l.stride, l.w, l.h, l.c, l.out_w, l.out_h, l.out_c);
         }else if(lt == SHORTCUT){
             if (l.frozen) fprintf(stderr, "\033[0;36m");
-            fprintf(stderr, "res\033[0m  %3d                %4d x%4d x%4d   ->  %4d x%4d x%4d\n",l.index, l.w,l.h,l.c, l.out_w,l.out_h,l.out_c);
+            fprintf(stderr, "res\033[0m  %3d                %4d x%4d x%4d   ->  %4d x%4d x%4d        ",l.index, l.w,l.h,l.c, l.out_w,l.out_h,l.out_c);
+            fprintf(stderr, "|");
+            print_activation_summary(l.activation);
+            fprintf(stderr, "\n");
         }else if(lt == DROPOUT){
             if (l.frozen) fprintf(stderr, "\033[0;36m");
             fprintf(stderr, "dropout\033[0m       p = %.2f               %4d  ->  %4d\n", l.probability, l.inputs, l.inputs);
@@ -1805,11 +1830,14 @@ void print_layer(layer l) {
             if (l.frozen) fprintf(stderr, "\033[0;36m");
             fprintf(stderr, "diff\033[0m  %5d -> %5d    %s", l.input_layers[0], l.input_layers[1], get_cost_string(l.cost_type));
             if (l.n > 0) fprintf(stderr, "  \033[0;33mskip %d channel(s)\033[0m", l.n);
-            if (l.ignore_thresh > 0) fprintf(stderr, "  \033[0;33mignore loss < %.3f\033[0m", l.ignore_thresh);
             fprintf(stderr, "\n");
         }else if(lt == CHANNEL_SELECTIVE){
             if (l.frozen) fprintf(stderr, "\033[0;36m");
             fprintf(stderr, "chsl\033[0m                    %4d x%4d x%4d   ->  %4d x%4d x%4d\n", l.w, l.h, l.c, l.out_w, l.out_h, l.out_c);
+        }else if(lt == PARTIAL){
+            if (l.frozen) fprintf(stderr, "\033[0;36m");
+            fprintf(stderr, "partial\033[0m %3d  offset by  %4d x%4d x%4d   ->  %4d x%4d x%4d", l.input_layers[0], l.offset_w, l.offset_h, l.offset_c, l.out_w, l.out_h, l.out_c);
+            fprintf(stderr, "\n");
         }else{
             fprintf(stderr, "\033[0;31mimplement in print_layer() in parser.c\033[0m");
         }

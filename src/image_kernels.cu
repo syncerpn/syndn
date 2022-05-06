@@ -63,6 +63,7 @@ void cutout_image_gpu(float* im_data, int w, int h, int c, int cut_xs, int cut_x
 
 void random_cutout_image_gpu(float* im_data, int w, int h, int c, cutout_args cutout) {
 	if ((rand() % 100) < (int)(cutout.prob * 100.)) {
+
         int xc = rand() % w;
         int yc = rand() % h;
         
@@ -84,6 +85,37 @@ void random_cutout_image_gpu(float* im_data, int w, int h, int c, cutout_args cu
         cutout_image_gpu(im_data, w, h, c, cut_xs, cut_xe, cut_ys, cut_ye);
     }
 }
+
+//nghiant_norand
+void random_cutout_image_gpu_norand(float* im_data, int w, int h, int c, cutout_args cutout, int* random_array, int* random_used) {
+	int rnd_i = 0;
+
+	if ((random_array[rnd_i++] % 100) < (int)(cutout.prob * 100.)) {
+
+        int xc = random_array[rnd_i++] % w;
+        int yc = random_array[rnd_i++] % h;
+        
+        int cut_w = (random_array[rnd_i++] % cutout.max_w) + 1;
+        int cut_h = (random_array[rnd_i++] % cutout.max_h) + 1;
+        
+        int cut_xs = xc - cut_w/2;
+        int cut_xe = cut_xs + cut_w - 1;
+
+        cut_xs = cut_xs > 0 ? cut_xs : 0;
+        cut_xe = cut_xe < w ? cut_xe : w - 1;
+
+        int cut_ys = yc - cut_h/2;
+        int cut_ye = cut_ys + cut_h - 1;
+        
+        cut_ys = cut_ys > 0 ? cut_ys : 0;
+        cut_ye = cut_ye < h ? cut_ye : h - 1;
+
+        cutout_image_gpu(im_data, w, h, c, cut_xs, cut_xe, cut_ys, cut_ye);
+    }
+
+    *random_used += rnd_i;
+}
+//nghiant_norand_end
 
 __device__ float three_way_max_kernel(float a, float b, float c) {
     return (a > b) ? ( (a > c) ? a : c) : ( (b > c) ? b : c);
@@ -230,6 +262,17 @@ void random_distort_image_gpu(float* im_data, int w, int h, int c, float hue, fl
     distort_image_gpu(im_data, w, h, c, dhue, dsat, dexp);
 }
 
+//nghiant_norand
+void random_distort_image_gpu_norand(float* im_data, int w, int h, int c, float hue, float saturation, float exposure, int* random_array, int* random_used) {
+	int rnd_i = 0;
+    float dhue = rand_uniform_norand(-hue, hue, random_array + rnd_i, &rnd_i);
+    float dsat = rand_scale_norand(saturation, random_array + rnd_i, &rnd_i);
+    float dexp = rand_scale_norand(exposure, random_array + rnd_i, &rnd_i);
+    *random_used += rnd_i;
+    distort_image_gpu(im_data, w, h, c, dhue, dsat, dexp);
+}
+//nghiant_norand_end
+
 __global__ void solarize_image_kernel(float* im_data, int w, int h, int c, float threshold) {
 	int index = (blockIdx.x + blockIdx.y*gridDim.x) * blockDim.x + threadIdx.x;
 	if (index >= c*h*w) return;
@@ -285,6 +328,30 @@ void random_distort_image_extend_gpu(float* im_data, int w, int h, int c, float 
 		add_image_noise_gpu(im_data, w, h, c, noise);
 	}
 }
+
+//nghiant_norand
+void random_distort_image_extend_gpu_norand(float* im_data, int w, int h, int c, float solarize, float posterize, float noise, int* random_array, int* random_used) {
+	int rnd_i = 0;
+
+	float psolarize = rand_uniform_norand(0, 1, random_array + rnd_i, &rnd_i);
+	if (psolarize < solarize) {
+		float dsolarize = rand_uniform_norand(0, 1, random_array + rnd_i, &rnd_i);
+		solarize_image_gpu(im_data, w, h, c, dsolarize);
+	}
+
+	float pposterize = rand_uniform_norand(0, 1, random_array + rnd_i, &rnd_i);
+	if (pposterize < posterize) {
+		int dposterize = rand_int_norand(16, 256, random_array + rnd_i, &rnd_i);
+		posterize_image_gpu(im_data, w, h, c, dposterize);
+	}
+	int pnoise = random_array[rnd_i++] % 2;
+	if (noise > 0 && pnoise) {
+		noise = (rand_uniform_norand(0, 1, random_array + rnd_i, &rnd_i) * 2 - 1) * noise;
+		add_image_noise_gpu(im_data, w, h, c, noise);
+	}
+	*random_used += rnd_i;
+}
+//nghiant_norand_end
 
 __global__ void resize_image_kernel(float* input, int iw, int ih, float* output, int ow, int oh, int oc) {
 	int index = (blockIdx.x + blockIdx.y*gridDim.x) * blockDim.x + threadIdx.x;

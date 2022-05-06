@@ -55,7 +55,7 @@ void forward_logistic_layer_gpu(const layer l, network net)
     if(net.truth){
         logistic_x_ent_gpu(l.batch*l.inputs, l.output_gpu, net.truth_gpu, l.delta_gpu, l.loss_gpu);
         cuda_pull_array(l.loss_gpu, l.loss, l.batch*l.inputs);
-        l.cost[0] = sum_array(l.loss, l.batch*l.inputs) * l.impact;
+        l.cost[0] = sum_array(l.loss, l.batch*l.inputs);
     }
 }
 

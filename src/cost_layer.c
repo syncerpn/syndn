@@ -133,7 +133,7 @@ void forward_cost_layer_gpu(layer l, network net)
     }
 
     cuda_pull_array(l.output_gpu, l.output, l.batch*l.inputs);
-    l.cost[0] = sum_array(l.output, l.batch*l.inputs) * l.impact;
+    l.cost[0] = sum_array(l.output, l.batch*l.inputs);
 }
 
 void backward_cost_layer_gpu(const layer l, network net)

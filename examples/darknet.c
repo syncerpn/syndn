@@ -3,17 +3,18 @@
 #include <time.h>
 #include <stdlib.h>
 #include <stdio.h>
+#include <assert.h>
 
 extern void run_depth_compress(int argc, char **argv);
 extern void run_detector(int argc, char **argv);
+extern void run_auto_colorizer(int argc, char **argv);
 extern void run_nightmare(int argc, char **argv);
 extern void run_classifier(int argc, char **argv);
 extern void run_regressor(int argc, char **argv);
 extern void run_segmenter(int argc, char **argv);
 extern void run_isegmenter(int argc, char **argv);
 extern void run_lsd(int argc, char **argv);
-
-unsigned int seed = 0;
+extern void run_classifier_slimmable(int argc, char **argv);
 
 void average(int argc, char *argv[])
 {
@@ -157,19 +158,20 @@ void partial(char *cfgfile, char *weightfile, char* modules, char *outfile, int 
     save_weights_upto(net, outfile, max);
 }
 
-void modularize(char *cfgfile, char *weightfile, char* modules, int layer_name)
+void modularize(char *cfgfile, char *weightfile, char* modules, int layer_name, int ignore_transform, int ignore_frozen)
 {
-    gpu_index = 0;
+    // gpu_index = 0;
     int i;
     network *net = load_network(cfgfile, weightfile, modules, 0, 1);
 
     if (net->pre_transformable) {
         net->pre_transform = 1;
-        pre_transform_conv_params(net);
+        if (!ignore_transform) pre_transform_conv_params(net);
     }
 
     for (i = 0; i < net->n; ++i) {
         layer l = net->layers[i];
+        if (ignore_frozen && l.frozen == 1) continue;
         char modular_file_name[1024];
         if (weightfile) {
         	if (layer_name) sprintf(modular_file_name, "%s_%s", weightfile, l.name);
@@ -179,7 +181,7 @@ void modularize(char *cfgfile, char *weightfile, char* modules, int layer_name)
             else sprintf(modular_file_name, "%s_init_layer_%d", basecfg(cfgfile), i);
         }
         if(l.type == CONVOLUTIONAL || l.type == DECONVOLUTIONAL){
-            if (l.weight_transform.type) {
+            if (l.weight_transform.type && !ignore_transform) {
                 swap_weight_transform(&l);
             }
             FILE* fp = fopen(modular_file_name, "wb");
@@ -227,6 +229,132 @@ void modularize(char *cfgfile, char *weightfile, char* modules, int layer_name)
             fclose(fp);
         }
     }
+}
+
+void slice_conv_weight(char *weightfile, int c, int groups, int size, int n, int slices, int batchnorm)
+{
+    gpu_index = 0;
+    fprintf(stderr, "Slicing weights \033[0;32m%s\033[0m of size \033[0;32m%d x %d x %d (group: %d) x %d\033[0m into \033[0;32m%d\033[0m slices\n", weightfile, size, size, c, groups, n, slices);
+    FILE* fp = fopen(weightfile, "rb");
+    int num = size * size * c/groups;
+
+    float* biases = calloc(n, sizeof(float));
+    fread(biases, sizeof(float), n, fp);
+
+    float* scales = 0;
+    float* rolling_mean = 0;
+    float* rolling_variance = 0;
+
+    if (batchnorm) {
+        scales = calloc(n, sizeof(float));
+        fread(scales, sizeof(float), n, fp);
+
+        rolling_mean = calloc(n, sizeof(float));
+        fread(rolling_mean, sizeof(float), n, fp);
+
+        rolling_variance = calloc(n, sizeof(float));
+        fread(rolling_variance, sizeof(float), n, fp);
+    }
+
+    float* weights = calloc(n*num, sizeof(float));
+    fread(weights, sizeof(float), n*num, fp);
+
+    fclose(fp);
+
+    assert(n % slices == 0);
+    int len = n/slices;
+    int i;
+
+    char sid[256];
+    for (i = 0; i < slices; ++i) {
+        sprintf(sid, "%s_slices_%d_%d", weightfile, slices, i+1);
+        fp = fopen(sid, "wb");
+
+        fwrite(biases+i*len, sizeof(float), len, fp);
+        if (batchnorm){
+            fwrite(scales+i*len, sizeof(float), len, fp);
+            fwrite(rolling_mean+i*len, sizeof(float), len, fp);
+            fwrite(rolling_variance+i*len, sizeof(float), len, fp);
+        }
+        fwrite(weights+i*len*num, sizeof(float), len*num, fp);
+
+        fprintf(stderr, "Saved slice: %s\n", sid);
+        fclose(fp);
+    }
+    free(biases);
+    free(scales);
+    free(rolling_mean);
+    free(rolling_variance);
+    free(weights);
+}
+
+void merge_conv_weight(char *weightfile, char** list, int c, int groups, int size, int n, int slices, int batchnorm)
+{
+    gpu_index = 0;
+    int i;
+
+    assert(n % slices == 0);
+    int len = n/slices;
+
+    FILE* fp;
+
+    int num = size * size * c / groups;
+
+    float* biases = calloc(n, sizeof(float));
+    float* scales = 0;
+    float* rolling_mean = 0;
+    float* rolling_variance = 0;
+
+    if (batchnorm) {
+        scales = calloc(n, sizeof(float));
+        rolling_mean = calloc(n, sizeof(float));
+        rolling_variance = calloc(n, sizeof(float));
+    }
+
+    float* weights = calloc(n*num, sizeof(float));
+
+    for (i = 0; i < slices; ++i) {
+
+	    fp = fopen(list[i], "rb");
+
+	    fread(biases + i*len, sizeof(float), len, fp);
+
+	    if (batchnorm) {
+		    fread(scales + i*len, sizeof(float), len, fp);
+		    fread(rolling_mean + i*len, sizeof(float), len, fp);
+		    fread(rolling_variance + i*len, sizeof(float), len, fp);
+	    }
+	    fread(weights + num*i*len, sizeof(float), len*num, fp);
+
+	    fclose(fp);
+	}
+
+    fp = fopen(weightfile, "wb");
+
+    fwrite(biases, sizeof(float), n, fp);
+    if (batchnorm){
+        fwrite(scales, sizeof(float), n, fp);
+        fwrite(rolling_mean, sizeof(float), n, fp);
+        fwrite(rolling_variance, sizeof(float), n, fp);
+    }
+    fwrite(weights, sizeof(float), n*num, fp);
+
+    fclose(fp);
+
+    free(biases);
+    if (batchnorm){
+	    free(scales);
+	    free(rolling_mean);
+	    free(rolling_variance);
+	}
+    free(weights);
+}
+
+void form_weight_file(char *cfgfile, char *weightfile, char* modules, char *outfile)
+{
+    gpu_index = 0;
+    network *net = load_network(cfgfile, weightfile, modules, 0, 1);
+    save_weights(net, outfile);
 }
 
 void sparsity(char *cfgfile, char *weightfile, char* modules, char* filename)
@@ -664,8 +792,12 @@ int main(int argc, char **argv)
         run_detector(argc, argv);
     } else if (0 == strcmp(argv[1], "depth_compress") || 0 == strcmp(argv[1], "dc")){
         run_depth_compress(argc, argv);
+    } else if (0 == strcmp(argv[1], "colorizer") || 0 == strcmp(argv[1], "color")){
+        run_auto_colorizer(argc, argv);
     } else if (0 == strcmp(argv[1], "classifier") || 0 == strcmp(argv[1], "cls")){
         run_classifier(argc, argv);
+    } else if (0 == strcmp(argv[1], "classifier_slimmable") || 0 == strcmp(argv[1], "cls_slim")){
+        run_classifier_slimmable(argc, argv);
     } else if (0 == strcmp(argv[1], "regressor")){
         run_regressor(argc, argv);
     } else if (0 == strcmp(argv[1], "isegmenter")){
@@ -748,7 +880,47 @@ int main(int argc, char **argv)
         char *modules = find_char_2arg(argc, argv, "-m", "--module", 0);
         char *cfg = find_char_2arg(argc, argv, "-c", "--config", 0);
         char *weights = find_char_2arg(argc, argv, "-w", "--weight", 0);
-    	modularize(cfg, weights, modules, layer_name);
+        int ignore_transform = find_arg(argc, argv, "-ignore_transform");
+        int ignore_frozen = find_arg(argc, argv, "-ignore_frozen");
+    	modularize(cfg, weights, modules, layer_name, ignore_transform, ignore_frozen);
+
+    } else if (0 == strcmp(argv[1], "slice")) {
+        char *weights = find_char_2arg(argc, argv, "-w", "--weight", 0);
+        int c = find_int_arg(argc, argv, "-in_c", 16);
+        int groups = find_int_arg(argc, argv, "-groups", 1);
+        int size = find_int_arg(argc, argv, "-size", 3);
+        int n = find_int_arg(argc, argv, "-out_c", 16);
+        int slices = find_int_arg(argc, argv, "-slices", 4);
+        int no_batchnorm = find_arg(argc, argv, "-no_batchnorm");
+        slice_conv_weight(weights, c, groups, size, n, slices, !no_batchnorm);
+
+    } else if (0 == strcmp(argv[1], "merge")) {
+        char *weights = find_char_2arg(argc, argv, "-w", "--weight", 0);
+        int slices = find_int_arg(argc, argv, "-slices", 4);
+        char **list = calloc(slices, sizeof(char*));
+        int i = 0;
+        for (i = 0; i < slices; ++i) {
+	        list[i] = find_char_2arg(argc, argv, "-l", "--list", 0);
+	        if (list[i] == 0) {
+	        	fprintf(stderr, "Not enough input files\n");
+	        	return 0;
+	        }
+	        fprintf(stderr, "%s\n", list[i]);
+	    }
+        int c = find_int_arg(argc, argv, "-in_c", 16);
+        int groups = find_int_arg(argc, argv, "-groups", 1);
+        int size = find_int_arg(argc, argv, "-size", 3);
+        int n = find_int_arg(argc, argv, "-out_c", 16);
+        int no_batchnorm = find_arg(argc, argv, "-no_batchnorm");
+        merge_conv_weight(weights, list, c, groups, size, n, slices, !no_batchnorm);
+        free(list);
+
+    } else if (0 == strcmp(argv[1], "form")){
+        char *modules = find_char_2arg(argc, argv, "-m", "--module", 0);
+        char *cfg = find_char_2arg(argc, argv, "-c", "--config", 0);
+        char *weights = find_char_2arg(argc, argv, "-w", "--weight", 0);
+        char *out = find_char_arg(argc, argv, "-out", 0);
+        form_weight_file(cfg, weights, modules, out);
 
     } else if (0 == strcmp(argv[1], "sparsity")) {
         char *modules = find_char_2arg(argc, argv, "-m", "--module", 0);
@@ -779,6 +951,7 @@ int main(int argc, char **argv)
 
     } else if (0 == strcmp(argv[1], "parse")){
         char *cfg = find_char_2arg(argc, argv, "-c", "--config", 0);
+        fprintf(stderr, "%s\n", basecfg(cfg));
         network* net = parse_network_cfg(cfg, 1);
 
         fprintf(stderr, "\n====Complexity====\n");

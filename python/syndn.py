@@ -6,6 +6,9 @@ import random
 ### main lib
 syndn_lib = CDLL("libdarknet.so", RTLD_GLOBAL)
 
+gpu_index = syndn_lib.gpu_index
+seed = syndn_lib.seed
+
 ### get lib structs
 class METADATA(Structure):
 	_fields_ = [("classes", c_int),
@@ -42,7 +45,6 @@ class WEIGHT_TRANSFORM_SCHEME(Structure):
 	_fields_ = [("type", c_int),
 				("step_size", c_float),
 				("num_level", c_int),
-				("large_threshold", c_float),
 				("first_shifting_factor", c_int),
 				]
 
@@ -58,6 +60,7 @@ class FIXED_POINT_SCHEME(Structure):
 	_fields_ = [("type", c_int),
 				("nbit", c_int),
 				("ibit", c_int),
+				("sign", c_int),
 				]
 
 class CUTOUT_ARGS(Structure):
@@ -86,7 +89,8 @@ class NETWORK(Structure):
 	pass
 
 # _fields_ definition of LAYER and NETWORK
-LAYER._fields_ = [("type", c_int),
+LAYER._fields_ = [("self_index", c_uint),
+				("type", c_int),
 				("activation", ACTIVATION_SCHEME),
 				("initializer", INITIALIZER),
 				("quantization", QUANTIZATION_SCHEME),
@@ -347,6 +351,9 @@ LAYER._fields_ = [("type", c_int),
 			    ("rand_gpu", POINTER(c_float)),
 			    ("squared_gpu", POINTER(c_float)),
 			    ("norms_gpu", POINTER(c_float)),
+			    ("offset_h", c_int),
+			    ("offset_w", c_int),
+			    ("offset_c", c_int),
 			    ("srcTensorDesc", c_int64), #cudnnTensorDescriptor_t ~ 8 bytes
 			    ("dstTensorDesc", c_int64), #cudnnTensorDescriptor_t ~ 8 bytes
 			    ("dsrcTensorDesc", c_int64), #cudnnTensorDescriptor_t ~ 8 bytes
@@ -358,6 +365,7 @@ LAYER._fields_ = [("type", c_int),
 			    ("fw_algo", c_int32), #cudnnConvolutionFwdAlgo_t ~ 4 bytes
 			    ("bd_algo", c_int32), #cudnnConvolutionBwdDataAlgo_t ~ 4 bytes
 			    ("bf_algo", c_int32), #cudnnConvolutionBwdFilterAlgo_t ~ 4 bytes
+			    ("mask_layer_softmax", c_int),
 			    ]
 
 NETWORK._fields_ = [("initializer", INITIALIZER),
@@ -492,6 +500,8 @@ class DATA(Structure):
 
 class LOAD_ARGS(Structure):
 	_fields_ = [("threads", c_int),
+				("thread_id", c_int),
+			    ("random_array", POINTER(c_int)),
 			    ("paths", POINTER(c_char_p)),
 			    ("path", POINTER(c_char)),
 			    ("n", c_int),
@@ -557,9 +567,7 @@ NODE._fields_ = [("val", c_void_p),
 				]
 
 class LIST(Structure):
-	pass
-
-LIST._fields_ = [("size", c_int),
+	_fields_ = [("size", c_int),
 				("front", POINTER(NODE)),
 				("back", POINTER(NODE)),
 				]
@@ -660,6 +668,11 @@ option_find_str.restype = c_char_p
 option_find_str_quiet = syndn_lib.option_find_str_quiet
 option_find_str_quiet.argtypes = [POINTER(LIST), c_char_p, c_char_p]
 option_find_str_quiet.restype = c_char_p
+
+# void option_find_str_series(list *l, char *key, int* num, char*** series);
+option_find_str_series = syndn_lib.option_find_str_series
+option_find_str_series.argtypes = [POINTER(LIST), c_char_p, POINTER(c_int), POINTER(POINTER(c_char_p))]
+option_find_str_series.restype = None
 
 # int option_find_int(list *l, char *key, int def);
 option_find_int = syndn_lib.option_find_int
@@ -844,6 +857,11 @@ normalize_array = syndn_lib.normalize_array
 normalize_array.argtypes = [POINTER(c_float), c_int]
 normalize_array.restype = None
 
+# void call_reproducible_rand_array(int** rand_array, size_t n);
+call_reproducible_rand_array = syndn_lib.call_reproducible_rand_array
+call_reproducible_rand_array.argtypes = [POINTER(POINTER(c_int)), c_size_t]
+call_reproducible_rand_array.restype = None
+
 # int *read_map(char *filename);
 read_map = syndn_lib.read_map
 read_map.argtypes = [c_char_p]
@@ -863,11 +881,6 @@ max_int_index.restype = c_int
 sample_array = syndn_lib.sample_array
 sample_array.argtypes = [POINTER(c_float), c_int]
 sample_array.restype = c_int
-
-# int *random_index_order(int min, int max);
-random_index_order = syndn_lib.random_index_order
-random_index_order.argtypes = [c_int, c_int]
-random_index_order.restype = POINTER(c_int)
 
 # int *read_intlist(char *s, int *n, int d);
 read_intlist = syndn_lib.read_intlist
@@ -934,6 +947,16 @@ rand_uniform = syndn_lib.rand_uniform
 rand_uniform.argtypes = [c_float, c_float]
 rand_uniform.restype = c_float
 
+# float rand_normal_norand(int* random_array, int* random_used);
+rand_normal_norand = syndn_lib.rand_normal_norand
+rand_normal_norand.argtypes = [POINTER(c_int), POINTER(c_int)]
+rand_normal_norand.restype = c_float
+
+# float rand_uniform_norand(float min, float max, int* random_array, int* random_used);
+rand_uniform_norand = syndn_lib.rand_uniform_norand
+rand_uniform_norand.argtypes = [c_float, c_float, POINTER(c_int), POINTER(c_int)]
+rand_uniform_norand.restype = c_float
+
 # float find_float_arg(int argc, char **argv, char *arg, float def);
 find_float_arg = syndn_lib.find_float_arg
 find_float_arg.argtypes = [c_int, POINTER(c_char_p), c_char_p, c_float]
@@ -949,6 +972,10 @@ rand_size_t = syndn_lib.rand_size_t
 rand_size_t.argtypes = None
 rand_size_t.restype = c_size_t
 
+# size_t rand_size_t_norand(int* random_array, int* random_used);
+rand_size_t_norand = syndn_lib.rand_size_t_norand
+rand_size_t_norand.argtypes = [POINTER(c_int), POINTER(c_int)]
+rand_size_t_norand.restype = c_size_t
 
 ## network.c
 # void forward_network(network *net);
@@ -1219,6 +1246,11 @@ random_distort_image_extend = syndn_lib.random_distort_image_extend
 random_distort_image_extend.argtypes = [IMAGE, c_float, c_float, c_float]
 random_distort_image_extend.restype = None
 
+# void random_distort_image_extend_norand(image im, float solarize, float posterize, float noise, int* random_array, int* random_used);
+random_distort_image_extend_norand = syndn_lib.random_distort_image_extend_norand
+random_distort_image_extend_norand.argtypes = [IMAGE, c_float, c_float, c_float, POINTER(c_int), POINTER(c_int)]
+random_distort_image_extend_norand.restype = None
+
 # void flip_image_x(image a, int h_flip, int v_flip);
 flip_image_x = syndn_lib.flip_image_x
 flip_image_x.argtypes = [IMAGE, c_int, c_int]
@@ -1248,6 +1280,16 @@ random_distort_image.restype = None
 random_cutout_image = syndn_lib.random_cutout_image
 random_cutout_image.argtypes = [IMAGE, CUTOUT_ARGS]
 random_cutout_image.restype = None
+
+# void random_distort_image_norand(image im, float hue, float saturation, float exposure, int* random_array, int* random_used);
+random_distort_image_norand = syndn_lib.random_distort_image_norand
+random_distort_image_norand.argtypes = [IMAGE, c_float, c_float, c_float, POINTER(c_int), POINTER(c_int)]
+random_distort_image_norand.restype = None
+
+# void random_cutout_image_norand(image im, cutout_args cutout, int* random_array, int* random_used);
+random_cutout_image_norand = syndn_lib.random_cutout_image_norand
+random_cutout_image_norand.argtypes = [IMAGE, CUTOUT_ARGS, POINTER(c_int), POINTER(c_int)]
+random_cutout_image_norand.restype = None
 
 # void fill_image(image m, float s);
 fill_image = syndn_lib.fill_image
@@ -1426,6 +1468,11 @@ scal_gpu.restype = None
 copy_gpu = syndn_lib.copy_gpu
 copy_gpu.argtypes = [c_int, POINTER(c_float), c_int, POINTER(c_float), c_int]
 copy_gpu.restype = None
+
+# void floorf_gpu(int N, float * X, int INCX);
+floorf_gpu = syndn_lib.floorf_gpu
+floorf_gpu.argtypes = [c_int, POINTER(c_float), c_int]
+floorf_gpu.restype = None
 
 
 ## cuda.c
@@ -1651,7 +1698,7 @@ free_list.restype = None
 
 if __name__ == "__main__":
 	cuda_set_device(1)
-	net = load_network("cfg/archive/yolov2_sim.cfg".encode(), "backup/yolov2_sim.backup_7200".encode(), None, 0, 0)
+	net = load_network("cfg/yolov2_sim.cfg".encode(), "backup/yolov2_sim_7200".encode(), None, 0, 0)
 	im = load_image_color("samples/dog.jpg".encode(), 0, 0)
 	make_window("prediction".encode(), 512, 512, 0)
 	show_image(im, "prediction".encode(), 0)

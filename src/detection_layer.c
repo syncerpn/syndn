@@ -197,7 +197,6 @@ void forward_detection_layer_gpu(const layer l, network net)
         }
 
         *(l.cost) = pow(mag_array(l.delta, l.outputs * l.batch), 2);
-        *(l.cost) *=  l.impact;
     }
 
     cuda_push_array(l.output_gpu, l.output, l.batch*l.outputs);

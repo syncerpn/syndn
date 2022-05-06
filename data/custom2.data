@@ -1,0 +1,8 @@
+classes= 80
+train  = /home/nghiant/dataset/train_voc_ori.txt
+valid  = /home/nghiant/dataset/custom2_list.txt
+names = data/coco.names
+backup = backup
+boxgt_dir = results/custom2_gt
+results = results/custom2
+info = info

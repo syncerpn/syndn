@@ -8,6 +8,7 @@
 #include <stdio.h>
 #include <time.h>
 #include "quantization_layer.h"
+#include <assert.h>
 
 void init_convolutional_layer(layer l, initializer init) {
     init.auto_sigma = sqrt(1./(l.size * l.size * l.c / l.groups));
@@ -124,8 +125,6 @@ char* get_weight_transform_scheme_string(WEIGHT_TRANSFORM_SCHEME type) {
             return "MEAN_SHIFTER";
         case WTS_UNIFORM:
             return "UNIFORM";
-        case WTS_VALUE_AWARE:
-            return "VALUE_AWARE";
         case WTS_SHIFTER:
             return "SHIFTER";
         case WTS_CYCLE:
@@ -149,7 +148,6 @@ void print_weight_transform_scheme_summary(weight_transform_scheme wts) {
             sprintf(buff, "%s %*d %*s-", get_weight_transform_scheme_string(wts.type), arg_1, wts.num_level, arg_2-1, "");
             break;
         case WTS_UNIFORM:
-        case WTS_VALUE_AWARE:
         case WTS_CYCLE:
             sprintf(buff, "%s %*d %*.*f", get_weight_transform_scheme_string(wts.type), arg_1, wts.num_level, arg_2, arg_2d, wts.step_size);
             break;
@@ -166,7 +164,6 @@ WEIGHT_TRANSFORM_SCHEME get_weight_transform_scheme(char *s) {
     if (strcmp(s, "wts_max_shifter")==0) return WTS_MAX_SHIFTER;
     if (strcmp(s, "wts_mean_shifter")==0) return WTS_MEAN_SHIFTER;
     if (strcmp(s, "wts_uniform")==0) return WTS_UNIFORM;
-    if (strcmp(s, "wts_value_aware")==0) return WTS_VALUE_AWARE;
     if (strcmp(s, "wts_shifter")==0) return WTS_SHIFTER;
     if (strcmp(s, "wts_cycle")==0) return WTS_CYCLE;
     if (strcmp(s, "wts_none")==0) return WTS_NONE;
@@ -174,7 +171,7 @@ WEIGHT_TRANSFORM_SCHEME get_weight_transform_scheme(char *s) {
     return WTS_NONE;
 }
 
-layer make_convolutional_layer(int batch, int h, int w, int c, int n, int dilation, int groups, int size, int stride, int padding, activation_scheme activation, int batch_normalize, weight_transform_scheme wts, OPTIMIZER optim, quantization_scheme qs)
+layer make_convolutional_layer(int batch, int h, int w, int c, int n, int dilation, int groups, int size, int stride, int padding, activation_scheme activation, int batch_normalize, OPTIMIZER optim)
 {
     int i;
     layer l = {0};
@@ -186,7 +183,6 @@ layer make_convolutional_layer(int batch, int h, int w, int c, int n, int dilati
     l.h = h;
     l.c = c;
     l.n = n;
-    l.weight_transform = wts;
     l.batch = batch;
     l.stride = stride;
     l.size = size;
@@ -215,58 +211,7 @@ layer make_convolutional_layer(int batch, int h, int w, int c, int n, int dilati
     l.output = calloc(l.batch*l.outputs, sizeof(float));
     l.delta  = calloc(l.batch*l.outputs, sizeof(float));
 
-    if(wts.type){
-        l.tran_weights = calloc(l.nweights, sizeof(float));
-        // l.scales = calloc(n, sizeof(float));
-        l.n_coeff = wts.num_level / 2;
-        l.q_coeff = calloc(l.n_coeff, sizeof(float));
-        switch (wts.type) {
-            case WTS_MAX_SHIFTER:
-                for (i = 0; i < l.n_coeff; ++i) {
-                    l.q_coeff[i] = powf(2.f, wts.first_shifting_factor - i);
-                }
-                break;
-            case WTS_MEAN_SHIFTER:
-                for (i = 0; i < l.n_coeff; ++i) {
-                    l.q_coeff[i] = powf(2.f, wts.first_shifting_factor - i);
-                }
-                break;
-            case WTS_UNIFORM:
-                if (wts.num_level % 2 == 1) {
-                    for (i = 0; i < l.n_coeff; ++i) {
-                        l.q_coeff[i] = wts.step_size * (i+1);
-                    }
-                } else {
-                    for (i = 0; i < l.n_coeff; ++i) {
-                        l.q_coeff[i] = wts.step_size * (i+0.5);
-                    }
-                }
-                break;
-            case WTS_VALUE_AWARE:
-                wts.num_level = (wts.num_level / 2) * 2;
-                for (i = 0; i < l.n_coeff; ++i) {
-                    l.q_coeff[i] = wts.step_size * (i+1);
-                }
-                break;
-            case WTS_SHIFTER:
-                for (i = 0; i < l.n_coeff; ++i) {
-                    l.q_coeff[i] = powf(2.f, wts.first_shifting_factor - i);
-                }
-                break;
-            case WTS_CYCLE:
-                for (i = 0; i < l.n_coeff; ++i) {
-                    l.q_coeff[i] = powf(2.f, wts.first_shifting_factor - i);
-                }
-                break;
-            case WTS_NONE:
-                break;
-        }
-
-        l.q_coeff_gpu = cuda_make_array(l.q_coeff, l.n_coeff);
-
-    }
-
-    if(batch_normalize){
+    if (batch_normalize) {
         l.scales = calloc(n, sizeof(float));
         l.scale_updates = calloc(n, sizeof(float));
         for(i = 0; i < n; ++i){
@@ -284,7 +229,8 @@ layer make_convolutional_layer(int batch, int h, int w, int c, int n, int dilati
         l.x = calloc(l.batch*l.outputs, sizeof(float));
         l.x_norm = calloc(l.batch*l.outputs, sizeof(float));
     }
-    if(optim == ADAM){
+    
+    if (optim == ADAM) {
         l.m = calloc(l.nweights, sizeof(float));
         l.v = calloc(l.nweights, sizeof(float));
         l.bias_m = calloc(n, sizeof(float));
@@ -314,10 +260,6 @@ layer make_convolutional_layer(int batch, int h, int w, int c, int n, int dilati
     l.delta_gpu = cuda_make_array(l.delta, l.batch*out_h*out_w*n);
     l.output_gpu = cuda_make_array(l.output, l.batch*out_h*out_w*n);
 
-    if (wts.type) {
-        l.tran_weights_gpu = cuda_make_array(l.weights, l.nweights);
-    }
-
     if(batch_normalize){
         l.mean_gpu = cuda_make_array(l.mean, n);
         l.variance_gpu = cuda_make_array(l.variance, n);
@@ -346,8 +288,61 @@ layer make_convolutional_layer(int batch, int h, int w, int c, int n, int dilati
     
     l.workspace_size = get_workspace_size(l);
     l.activation = activation;
-    l.quantization = qs;
     return l;
+}
+
+void assign_weight_transform_convolutional_layer(layer* l, weight_transform_scheme wts) {
+    l->weight_transform = wts;
+
+    if (l->tran_weights == 0) l->tran_weights = calloc(l->nweights, sizeof(float));
+    if (l->tran_weights_gpu == 0) l->tran_weights_gpu = cuda_make_array(l->tran_weights, l->nweights);
+
+    l->n_coeff = wts.num_level / 2;
+    
+    if (l->q_coeff) {
+        free(l->q_coeff);
+        l->q_coeff = 0;
+    }
+    if (l->q_coeff_gpu) {
+        cuda_free(l->q_coeff_gpu);
+        l->q_coeff_gpu = 0;
+    }
+    if (l->n_coeff > 0) l->q_coeff = calloc(l->n_coeff, sizeof(float));
+
+    int i;
+    switch (wts.type) {
+        case WTS_MAX_SHIFTER:
+        case WTS_MEAN_SHIFTER:
+        case WTS_SHIFTER:
+            for (i = 0; i < l->n_coeff; ++i) {
+                l->q_coeff[i] = (float)(wts.first_shifting_factor - i);
+            }
+            break;
+        case WTS_UNIFORM:
+            if (wts.num_level % 2 == 1) {
+                for (i = 0; i < l->n_coeff; ++i) {
+                    l->q_coeff[i] = wts.step_size * (i+1);
+                }
+            } else {
+                for (i = 0; i < l->n_coeff; ++i) {
+                    l->q_coeff[i] = wts.step_size * (i+0.5);
+                }
+            }
+            break;
+        case WTS_CYCLE:
+            for (i = 0; i < l->n_coeff; ++i) {
+                l->q_coeff[i] = powf(2.f, wts.first_shifting_factor - i);
+            }
+            break;
+        case WTS_NONE:
+            break;
+    }
+
+    if (l->n_coeff > 0) l->q_coeff_gpu = cuda_make_array(l->q_coeff, l->n_coeff);
+}
+
+void assign_quantization_convolutional_layer(layer* l, quantization_scheme qs) {
+    l->quantization = qs;
 }
 
 void denormalize_convolutional_layer(layer l)

@@ -104,7 +104,8 @@ typedef enum {
     PRIORBOX,
     MULTIBOX,
     DIFF,
-    CHANNEL_SELECTIVE
+    CHANNEL_SELECTIVE,
+    PARTIAL
 } LAYER_TYPE;
 
 typedef enum{
@@ -112,16 +113,14 @@ typedef enum{
     WTS_MAX_SHIFTER,
     WTS_MEAN_SHIFTER,
     WTS_UNIFORM,
-    WTS_VALUE_AWARE,
     WTS_SHIFTER,
-    WTS_CYCLE
+    WTS_CYCLE,
 } WEIGHT_TRANSFORM_SCHEME;
 
-typedef struct{
+typedef struct weight_transform_scheme{
     WEIGHT_TRANSFORM_SCHEME type;
     float step_size;
     int num_level;
-    float large_threshold;
     int first_shifting_factor;
 } weight_transform_scheme;
 
@@ -149,6 +148,7 @@ typedef struct{
     FIXED_POINT_SCHEME type;
     int nbit;
     int ibit;
+    int sign;
 } fixed_point_scheme;
 //nghiant_end
 
@@ -183,6 +183,7 @@ struct network;
 typedef struct network network;
 
 typedef struct layer{
+    unsigned int self_index;
     LAYER_TYPE type;
     activation_scheme activation;
 
@@ -504,6 +505,8 @@ typedef struct layer{
     float * squared_gpu;
     float * norms_gpu;
 
+    int offset_w, offset_h, offset_c;
+
     cudnnTensorDescriptor_t srcTensorDesc, dstTensorDesc;
     cudnnTensorDescriptor_t dsrcTensorDesc, ddstTensorDesc;
     cudnnTensorDescriptor_t normTensorDesc;
@@ -513,6 +516,9 @@ typedef struct layer{
     cudnnConvolutionFwdAlgo_t fw_algo;
     cudnnConvolutionBwdDataAlgo_t bd_algo;
     cudnnConvolutionBwdFilterAlgo_t bf_algo;
+
+    //nghiant_20200221: diff layer option
+    int mask_layer_softmax;
 } layer;
 
 typedef enum {
@@ -659,11 +665,21 @@ typedef struct{
 
 typedef enum {
     CLASSIFICATION_DATA, DETECTION_DATA, IMAGE_DATA, IMAGE_DATA_CROP, OLD_CLASSIFICATION_DATA, LETTERBOX_DATA, REGRESSION_DATA, SEGMENTATION_DATA, INSTANCE_DATA, ISEG_DATA,
-    LETTERBOX_DATA_8BIT, LETTERBOX_DATA_NO_TRUTH
+    LETTERBOX_DATA_8BIT, LETTERBOX_DATA_NO_TRUTH,
+    //nghiant_norand
+    CLASSIFICATION_DATA_NORAND,
+    AUTO_COLORIZE_DATA
+    //nghiant_norand_end
 } DATA_TYPE;
 
 typedef struct load_args{
     int threads;
+    
+    //nghiant_20191107
+    int thread_id;
+    int* random_array;
+    //nghiant_20191107_end
+
     char **paths;
     char *path;
     int n;
@@ -750,6 +766,7 @@ list *get_paths(char *filename);
 //option_list.c
 char *option_find_str(list *l, char *key, char *def);
 char *option_find_str_quiet(list *l, char *key, char *def);
+void option_find_str_series(list *l, char *key, int* num, char*** series);
 int option_find_int(list *l, char *key, int def);
 int option_find_int_quiet(list *l, char *key, int def);
 void option_find_int_series(list *l, char *key, int* num, int** series);
@@ -790,11 +807,15 @@ void clear_prev_line(FILE* stream);
 void clear_n_prev_lines(FILE* stream, int n);
 void error(const char *s);
 void normalize_array(float *a, int n);
+
+//nghiant_norand
+void call_reproducible_rand_array(int** rand_array, size_t n);
+//nghiant_norand_end
+
 int *read_map(char *filename);
 int max_index(float *a, int n);
 int max_int_index(int *a, int n);
 int sample_array(float *a, int n);
-int *random_index_order(int min, int max);
 int *read_intlist(char *s, int *n, int d);
 int find_int_arg(int argc, char **argv, char *arg, int def);
 int find_int_2arg(int argc, char **argv, char *arg1, char *arg2, int def);
@@ -808,9 +829,16 @@ float sum_array(float *a, int n);
 float sec(clock_t clocks);
 float rand_normal();
 float rand_uniform(float min, float max);
+//nghiant_norand
+float rand_normal_norand(int* random_array, int* random_used);
+float rand_uniform_norand(float min, float max, int* random_array, int* random_used);
+//nghiant_norand_end
 float find_float_arg(int argc, char **argv, char *arg, float def);
 float find_float_2arg(int argc, char **argv, char *arg1, char* arg2, float def);
 size_t rand_size_t();
+//nghiant_norand
+size_t rand_size_t_norand(int* random_array, int* random_used);
+//nghiant_norand_end
 
 //network.c
 void forward_network(network *net);
@@ -831,6 +859,10 @@ float *network_accuracies(network *net, data d, int n);
 float train_network_datum(network *net);
 float train_networks(network **nets, int n, data d, int interval);
 float train_network(network *net, data d);
+
+float train_network_datum_slimmable(network *net);
+float train_network_slimmable(network *net, data d);
+
 float *network_predict(network *net, float *input);
 float get_current_rate(network *net);
 char *get_layer_string(LAYER_TYPE a);
@@ -870,12 +902,23 @@ void find_min_max(float a, float b, float c, float d, float* min, float* max);
 void solarize_image(image im, float threshold);
 void posterize_image(image im, int levels);
 void random_distort_image_extend(image im, float solarize, float posterize, float noise);
+
+//nghiant_norand
+void random_distort_image_extend_norand(image im, float solarize, float posterize, float noise, int* random_array, int* random_used);
+//nghiant_norand_end
+
 void flip_image_x(image a, int h_flip, int v_flip);
 void flip_image_horizontal(image a);
 void flip_image_vertical(image a);
 void ghost_image(image source, image dest, int dx, int dy);
 void random_distort_image(image im, float hue, float saturation, float exposure);
 void random_cutout_image(image im, cutout_args cutout);
+
+//nghiant_norand
+void random_distort_image_norand(image im, float hue, float saturation, float exposure, int* random_array, int* random_used);
+void random_cutout_image_norand(image im, cutout_args cutout, int* random_array, int* random_used);
+//nghiant_norand_end
+
 void fill_image(image m, float s);
 void rotate_image_cw(image im, int times);
 void draw_detection(image im, im_box ib, float red, float green, float blue);
@@ -915,6 +958,7 @@ void fill_gpu(int N, float ALPHA, float * X, int INCX);
 void fill_int_gpu(int N, int ALPHA, int * X, int INCX);
 void scal_gpu(int N, float ALPHA, float * X, int INCX);
 void copy_gpu(int N, float * X, int INCX, float * Y, int INCY);
+void floorf_gpu(int N, float * X, int INCX);
 
 //cuda.c
 int *cuda_make_int_array(int *x, size_t n);
@@ -948,7 +992,7 @@ void rgbgr_weights(layer l);
 image *get_weights(layer l);
 
 //demo.c
-void demo(char *cfgfile, char *weightfile, char* modules, float thresh, int cam_index, const char *filename, char **names, int classes, int frame_skip, char *prefix, int avg, float hier_thresh, int w, int h, int fps, int fullscreen, int cropx, int save_frame, int add_frame_count);
+void demo(char *cfgfile, char *weightfile, char* modules, float thresh, int cam_index, const char *filename, char **names, int classes, int frame_skip, char *prefix, int avg, float hier_thresh, int w, int h, int fps, int fullscreen, int cropx, int save_frame, int add_frame_count, char* line_150);
 void demo_mf(char *cfgfile, char *weightfile, char* modules, float thresh, int cam_index, const char *filename, char **names, int classes, int delay, char *prefix, int avg_frames, float hier, int w, int h, int frames, int fullscreen, int cropx, int save_frame, int add_frame_count);
 int size_network(network *net);
 

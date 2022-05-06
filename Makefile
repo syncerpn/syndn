@@ -14,7 +14,7 @@ CPP=g++
 NVCC=nvcc 
 AR=ar
 ARFLAGS=rcs
-LDFLAGS= -lm -pthread `pkg-config --libs opencv` -lstdc++ -L/usr/local/cuda/lib64 -lcuda -lcudart -lcublas -lcurand -lcudnn -lsfml-graphics -lsfml-window -lsfml-system
+LDFLAGS= -lm -pthread `pkg-config --libs opencv` -lstdc++ -L/usr/local/cuda/lib64 -lcuda -lcudart -lcublas -lcurand -lcudnn
 COMMON= -Iinclude/ -Isrc/ -DOPENCV `pkg-config --cflags opencv` -DGPU -I/usr/local/cuda/include/ -DCUDNN
 CFLAGS=-Wall -Wno-unused-result -Wno-unknown-pragmas -Wfatal-errors -fPIC -fopenmp -Ofast -DOPENCV -DGPU -DCUDNN
 
@@ -33,9 +33,10 @@ OBJ=gemm.o utils.o cuda.o deconvolutional_layer.o convolutional_layer.o list.o i
 	convolutional_weight_transform.o priorbox_kernels.o multibox_kernels.o yolo_kernels.o 	\
 	channel_selective_layer.o channel_selective_kernels.o 									\
 	detection_layer.o region_layer.o image_kernels.o 										\
+	partial_layer.o partial_kernels.o 														\
 
 EXECOBJA=lsd.o segmenter.o regressor.o classifier.o detector.o nightmare.o 					\
-		instance-segmenter.o darknet.o depth_compress.o 		 							\
+		instance-segmenter.o darknet.o depth_compress.o auto_colorize.o	slimmable_net.o		\
 
 EXECOBJ = $(addprefix $(OBJDIR), $(EXECOBJA))
 OBJS = $(addprefix $(OBJDIR), $(OBJ))

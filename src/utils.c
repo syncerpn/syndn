@@ -10,6 +10,8 @@
 #include <sys/time.h>
 #include "utils.h"
 
+unsigned int seed = 0;
+
 double what_time_is_it_now()
 {
     struct timeval time;
@@ -55,22 +57,6 @@ int *read_map(char *filename)
         map[n-1] = atoi(str);
     }
     return map;
-}
-
-int *random_index_order(int min, int max)
-{
-    int *inds = calloc(max-min, sizeof(int));
-    int i;
-    for(i = min; i < max; ++i){
-        inds[i] = i;
-    }
-    for(i = min; i < max-1; ++i){
-        int swap = inds[i];
-        int index = i + rand()%(max-i);
-        inds[i] = inds[index];
-        inds[index] = swap;
-    }
-    return inds;
 }
 
 void del_arg(int argc, char **argv, int index)
@@ -515,6 +501,22 @@ int rand_int(int min, int max)
     return r;
 }
 
+//nghiant_norand
+int rand_int_norand(int min, int max, int* random_array, int* random_used)
+{
+    int rnd_i = 0;
+    if (max < min){
+        int s = min;
+        min = max;
+        max = s;
+    }
+    int r = (random_array[rnd_i++]%(max - min + 1)) + min;
+    *random_used += rnd_i;
+    return r;
+}
+//nghiant_norand_end
+
+
 float rand_normal()
 {
     static int haveSpare = 0;
@@ -536,6 +538,33 @@ float rand_normal()
     return sqrt(rand1) * cos(rand2);
 }
 
+//nghiant_norand
+float rand_normal_norand(int* random_array, int* random_used)
+{
+    int rnd_i = 0;
+    static int haveSpare = 0;
+    static double rand1, rand2;
+
+    if(haveSpare)
+    {
+        haveSpare = 0;
+        random_used += rnd_i;
+        return sqrt(rand1) * sin(rand2);
+    }
+
+    haveSpare = 1;
+
+    rand1 = random_array[rnd_i++] / ((double) RAND_MAX);
+    if(rand1 < 1e-100) rand1 = 1e-100;
+    rand1 = -2 * log(rand1);
+    rand2 = (random_array[rnd_i++] / ((double) RAND_MAX)) * TWO_PI;
+    *random_used += rnd_i;
+
+    return sqrt(rand1) * cos(rand2);
+}
+//nghiant_norand_end
+
+
 size_t rand_size_t()
 {
     return  ((size_t)(rand()&0xff) << 56) | 
@@ -548,6 +577,26 @@ size_t rand_size_t()
         ((size_t)(rand()&0xff) << 0);
 }
 
+//nghiant_norand
+size_t rand_size_t_norand(int* random_array, int* random_used)
+{
+    int rnd_i = 0;
+    size_t res  = ((size_t)(random_array[rnd_i++]&0xff) << 56);
+           res |= ((size_t)(random_array[rnd_i++]&0xff) << 48);
+           res |= ((size_t)(random_array[rnd_i++]&0xff) << 40);
+           res |= ((size_t)(random_array[rnd_i++]&0xff) << 32);
+           res |= ((size_t)(random_array[rnd_i++]&0xff) << 24);
+           res |= ((size_t)(random_array[rnd_i++]&0xff) << 16);
+           res |= ((size_t)(random_array[rnd_i++]&0xff) << 8);
+           res |= ((size_t)(random_array[rnd_i++]&0xff) << 0);
+
+    *random_used += rnd_i;
+
+    return res;
+}
+//nghiant_norand_end
+
+
 float rand_uniform(float min, float max)
 {
     if(max < min){
@@ -558,12 +607,45 @@ float rand_uniform(float min, float max)
     return ((float)rand()/RAND_MAX * (max - min)) + min;
 }
 
+//nghiant_norand
+float rand_uniform_norand(float min, float max, int* random_array, int* random_used)
+{
+    int rnd_i = 0;
+    if(max < min){
+        float swap = min;
+        min = max;
+        max = swap;
+    }
+    float res = ((float)random_array[rnd_i++]/RAND_MAX * (max - min)) + min;
+
+    *random_used += rnd_i;
+    return res;
+}
+//nghiant_norand_end
+
+
 float rand_scale(float s)
 {
     float scale = rand_uniform(1, s);
     if(rand()%2) return scale;
     return 1./scale;
 }
+
+//nghiant_norand
+float rand_scale_norand(float s, int* random_array, int* random_used)
+{
+    int rnd_i = 0;
+    float scale = rand_uniform_norand(1, s, random_array + rnd_i, &rnd_i);
+
+    if (random_array[rnd_i++] % 2) {
+        *random_used += rnd_i;
+        return scale;
+    }
+
+    *random_used += rnd_i;
+    return 1./scale;
+}
+//nghiant_norand_end
 
 void merge(float* arr, int l, int m, int r, int* sorted_index) {
     int i, j, k;
@@ -724,5 +806,16 @@ void clear_prev_line(FILE* stream) {
 void clear_n_prev_lines(FILE* stream, int n) {
     while (n-- > 0) {
         clear_prev_line(stream);
+    }
+}
+
+void call_reproducible_rand_array(int** rand_array, size_t n) {
+    if (*rand_array) {
+        free(*rand_array);
+    }
+    (*rand_array) = calloc(n, sizeof(int));
+    int i;
+    for (i = 0; i < n; ++i) {
+        (*rand_array)[i] = rand();
     }
 }

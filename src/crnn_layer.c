@@ -51,18 +51,15 @@ layer make_crnn_layer(int batch, int h, int w, int c, int hidden_filters, int ou
 
     l.input_layer = malloc(sizeof(layer));
     
-    quantization_scheme qs = {0};
-    weight_transform_scheme wts = {0};
-
-    *(l.input_layer) = make_convolutional_layer(batch*steps, h, w, c, hidden_filters, 1, 1, 3, 1, 1, activation, batch_normalize, wts, optim, qs);
+    *(l.input_layer) = make_convolutional_layer(batch*steps, h, w, c, hidden_filters, 1, 1, 3, 1, 1, activation, batch_normalize, optim);
     l.input_layer->batch = batch;
 
     l.self_layer = malloc(sizeof(layer));
-    *(l.self_layer) = make_convolutional_layer(batch*steps, h, w, hidden_filters, hidden_filters, 1, 1, 3, 1, 1, activation, batch_normalize, wts, optim, qs);
+    *(l.self_layer) = make_convolutional_layer(batch*steps, h, w, hidden_filters, hidden_filters, 1, 1, 3, 1, 1, activation, batch_normalize, optim);
     l.self_layer->batch = batch;
 
     l.output_layer = malloc(sizeof(layer));
-    *(l.output_layer) = make_convolutional_layer(batch*steps, h, w, hidden_filters, output_filters, 1, 1, 3, 1, 1, activation, batch_normalize, wts, optim, qs);
+    *(l.output_layer) = make_convolutional_layer(batch*steps, h, w, hidden_filters, output_filters, 1, 1, 3, 1, 1, activation, batch_normalize, optim);
     l.output_layer->batch = batch;
 
     l.output = l.output_layer->output;

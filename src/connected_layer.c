@@ -224,6 +224,7 @@ void forward_connected_layer_gpu(layer l, network net)
         add_bias_gpu(l.output_gpu, l.biases_gpu, l.batch, l.outputs, 1);
     }
     activate_array_gpu(l.output_gpu, l.outputs*l.batch, l.activation);
+
 }
 
 void backward_connected_layer_gpu(layer l, network net)

@@ -15,6 +15,9 @@ void forward_convolutional_layer_gpu(layer l, network net);
 void backward_convolutional_layer_gpu(layer l, network net);
 void update_convolutional_layer_gpu(layer l, update_args a);
 
+void assign_weight_transform_convolutional_layer(layer* l, weight_transform_scheme wts);
+void assign_quantization_convolutional_layer(layer* l, quantization_scheme qs);
+
 void push_convolutional_layer(layer l);
 void pull_convolutional_layer(layer l);
 
@@ -24,7 +27,7 @@ void adam_update_gpu(float *w, float *d, float *m, float *v, float B1, float B2,
 void cudnn_convolutional_setup(layer *l);
 
 void init_convolutional_layer(layer l, initializer init);
-layer make_convolutional_layer(int batch, int h, int w, int c, int n, int dilation, int groups, int size, int stride, int padding, activation_scheme activation, int batch_normalize, weight_transform_scheme wts, OPTIMIZER optim, quantization_scheme qs);
+layer make_convolutional_layer(int batch, int h, int w, int c, int n, int dilation, int groups, int size, int stride, int padding, activation_scheme activation, int batch_normalize, OPTIMIZER optim);
 void resize_convolutional_layer(layer *layer, int w, int h);
 image *visualize_convolutional_layer(layer l, char *window, image *prev_weights);
 

@@ -87,6 +87,23 @@ char **get_random_paths(char **paths, int n, int m)
     return random_paths;
 }
 
+char **get_random_paths_norand(char **paths, int n, int m, int* random_array, int* random_used)
+{
+    int rnd_i = 0;
+
+    char **random_paths = calloc(n, sizeof(char*));
+    int i;
+    pthread_mutex_lock(&mutex);
+    for(i = 0; i < n; ++i){
+        int index = random_array[rnd_i++] % m;
+        random_paths[i] = paths[index];
+    }
+    pthread_mutex_unlock(&mutex);
+
+    *random_used += rnd_i;
+    return random_paths;
+}
+
 matrix load_image_paths_gray(char **paths, int n, int w, int h)
 {
     int i;
@@ -152,9 +169,45 @@ matrix load_image_augment_paths(char **paths, int n, int min, int max, int size,
         X.vals[i] = crop.data;
         X.cols = crop.h*crop.w*crop.c;
     }
+
     return X;
 }
 
+//nghiant_norand
+matrix load_image_augment_paths_norand(char **paths, int n, int min, int max, int size, float angle, float aspect, float hue, float saturation, float exposure, int center, float hflip, float vflip, float solarize, float posterize, float noise, cutout_args cutout, int* random_array, int* random_used)
+{
+    int rnd_i = 0;
+    int i;
+    matrix X;
+    X.rows = n;
+    X.vals = calloc(X.rows, sizeof(float*));
+    X.cols = 0;
+
+    for(i = 0; i < n; ++i){
+        image im = load_image_color(paths[i], 0, 0);
+        image crop;
+        if(center){
+            crop = center_crop_image(im, size, size);
+        } else {
+            crop = random_augment_image_norand(im, angle, aspect, min, max, size, size, random_array + rnd_i, &rnd_i);
+        }
+        int flip_h = (random_array[rnd_i++] % 100) < (int)(hflip * 100.);
+        int flip_v = (random_array[rnd_i++] % 100) < (int)(vflip * 100.);
+        flip_image_x(crop, flip_h, flip_v);
+
+        random_distort_image_norand(crop, hue, saturation, exposure, random_array + rnd_i, &rnd_i);
+        random_distort_image_extend_norand(crop, solarize, posterize, noise, random_array + rnd_i, &rnd_i);
+        random_cutout_image_norand(crop, cutout, random_array + rnd_i, &rnd_i);
+
+        free_image(im);
+        X.vals[i] = crop.data;
+        X.cols = crop.h*crop.w*crop.c;
+    }
+    *random_used += rnd_i;
+
+    return X;
+}
+//nghiant_norand_end
 
 box_label *read_boxes(char *filename, int *n)
 {
@@ -829,6 +882,30 @@ data load_data_detection(int n, char **paths, char* label_dir, int m, int w, int
     return d;
 }
 
+data load_data_auto_colorize(int n, char** paths, int m, int w, int h) {
+    char** random_paths = get_random_paths(paths, n, m);
+    int i;
+    data d = {0};
+    d.shallow = 0;
+
+    d.X.rows = n;
+    d.X.vals = calloc(d.X.rows, sizeof(float*));
+    d.X.cols = h*w;
+
+    d.y = make_matrix(n, w*h*2);
+    for (i = 0; i < n; ++i) {
+        image orig = load_image_color(random_paths[i], 0, 0);
+        image sized = resize_image(orig, w, h);
+        rgb_to_lab(sized);
+        d.X.vals[i] = sized.data;
+        memcpy(d.y.vals[i], sized.data+w*h, 2*w*h*sizeof(float));
+        // d.y.vals[i] = sized.data+w*h;
+        free_image(orig);
+    }
+    free(random_paths);
+    return d;
+}
+
 data load_data_letterbox_no_truth(int n, char **paths, int m, int w, int h, int boxes, int classes, float jitter, float hue, float saturation, float exposure, float angle, float* zoom, float hflip, float vflip, float solarize, float posterize, float noise, cutout_args cutout)
 {
     char **random_paths = get_random_paths(paths, n, m);
@@ -900,6 +977,14 @@ void *load_thread(void *ptr)
         *a.d = load_data_regression(a.paths, a.n, a.m, a.classes, a.min, a.max, a.size, a.angle, a.aspect, a.hue, a.saturation, a.exposure, a.hflip, a.vflip, a.solarize, a.posterize, a.noise, a.cutout);
     } else if (a.type == CLASSIFICATION_DATA){
         *a.d = load_data_augment(a.paths, a.n, a.m, a.labels, a.classes, a.hierarchy, a.min, a.max, a.size, a.angle, a.aspect, a.hue, a.saturation, a.exposure, a.center, a.hflip, a.vflip, a.solarize, a.posterize, a.noise, a.cutout);
+
+    //nghiant_norand
+    } else if (a.type == CLASSIFICATION_DATA_NORAND){
+        int rnd_i = 0;
+        int unsafe_offset = 1024;
+        *a.d = load_data_augment_norand(a.paths, a.n, a.m, a.labels, a.classes, a.hierarchy, a.min, a.max, a.size, a.angle, a.aspect, a.hue, a.saturation, a.exposure, a.center, a.hflip, a.vflip, a.solarize, a.posterize, a.noise, a.cutout, a.random_array + a.thread_id * unsafe_offset, &rnd_i);
+    //nghiant_norand_end
+
     } else if (a.type == ISEG_DATA){
         *a.d = load_data_iseg(a.n, a.paths, a.m, a.w, a.h, a.classes, a.num_boxes, a.scale, a.min, a.max, a.angle, a.aspect, a.hue, a.saturation, a.exposure, a.hflip, a.vflip, a.solarize, a.posterize, a.noise);
     } else if (a.type == INSTANCE_DATA){
@@ -924,6 +1009,8 @@ void *load_thread(void *ptr)
         *(a.im) = load_image_color(a.path, 0, 0);
         *(a.resized) = letterbox_image(*(a.im), a.w, a.h);
         double_im_to_255(*(a.resized));
+    } else if (a.type == AUTO_COLORIZE_DATA){
+        *a.d = load_data_auto_colorize(a.n, a.paths, a.m, a.w, a.h);
     }
     free(ptr);
     return 0;
@@ -949,6 +1036,7 @@ void *load_threads(void *ptr)
     data *buffers = calloc(args.threads, sizeof(data));
     pthread_t *threads = calloc(args.threads, sizeof(pthread_t));
     for(i = 0; i < args.threads; ++i){
+        args.thread_id = i;
         args.d = buffers + i;
         args.n = (i+1) * total/args.threads - i * total/args.threads;
         threads[i] = load_data_in_thread(args);
@@ -1010,6 +1098,23 @@ data load_data_augment(char **paths, int n, int m, char **labels, int k, tree *h
     if(m) free(paths);
     return d;
 }
+
+//nghiant_norand
+data load_data_augment_norand(char **paths, int n, int m, char **labels, int k, tree *hierarchy, int min, int max, int size, float angle, float aspect, float hue, float saturation, float exposure, int center, float hflip, float vflip, float solarize, float posterize, float noise, cutout_args cutout, int* random_array, int* random_used)
+{
+    int rnd_i = 0;
+    if(m) paths = get_random_paths_norand(paths, n, m, random_array + rnd_i, &rnd_i);
+    data d = {0};
+    d.shallow = 0;
+    d.w=size;
+    d.h=size;
+    d.X = load_image_augment_paths_norand(paths, n, min, max, size, angle, aspect, hue, saturation, exposure, center, hflip, vflip, solarize, posterize, noise, cutout, random_array + rnd_i, &rnd_i);
+    d.y = load_labels_paths(paths, n, labels, k, hierarchy);
+    if(m) free(paths);
+    *random_used += rnd_i;
+    return d;
+}
+//nghiant_norand_end
 
 matrix concat_matrix(matrix m1, matrix m2)
 {

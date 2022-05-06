@@ -144,6 +144,56 @@ char *option_find_str_quiet(list *l, char *key, char *def)
     return def;
 }
 
+void option_find_str_series(list *l, char *key, int* num, char*** series)
+{
+    char *v = option_find(l, key);
+    if (v) {
+        int len = strlen(v);
+        int n = 1;
+        int i, j, k, m;
+        for(i = 0; i < len; ++i){
+            if (v[i] == ',') ++n;
+        }
+        
+        if (*series == 0) {
+            *series = calloc(n, sizeof(char*));
+        }
+
+        k = 0;
+
+        for(j = 0; j < len; ++j){
+            for (i = j; i < len; ++i) {
+                if (v[i] == ',') break;
+            }
+            
+            int sub_bgn = j;
+            int sub_end = i;
+            for (m = sub_bgn; m < sub_end; ++m) {
+                if (v[m] != ' ') break;
+            }
+            sub_bgn = m;
+
+            for (m = sub_end - 1; m >= sub_bgn; m--) {
+                if (v[m] != ' ') break;
+            }
+            sub_end = m;
+
+            int sublen = sub_end - sub_bgn + 1;
+
+            (*series)[k] = calloc(sublen + 1, sizeof(char));
+            memcpy((*series)[k], v+sub_bgn, sublen);
+            (*(*series + k))[sublen] = '\0';
+
+            j = i;
+            ++k;
+        }
+        if (num) *num = n;
+        return;
+    }
+    if (num) *num = 0;
+    return;
+}
+
 int option_find_int(list *l, char *key, int def)
 {
     char *v = option_find(l, key);

@@ -25,11 +25,21 @@ void k_means(float* data, int n, float* centroid, int c, int max_iters);
 float *parse_fields(char *line, int n);
 float constrain(float min, float max, float a);
 float rand_scale(float s);
+
+//nghiant_norand
+float rand_scale_norand(float s, int* random_array, int* random_used);
+//nghiant_norand_end
+
 float dist_array(float *a, float *b, int n, int sub);
 float sec(clock_t clocks);
 char *fgetl(FILE *fp);
 char *copy_string(char *s);
 int constrain_int(int a, int min, int max);
 int rand_int(int min, int max);
+
+//nghiant_norand
+int rand_int_norand(int min, int max, int* random_array, int* random_used);
+//nghiant_norand_end
+
 int count_fields(char *line);
 #endif
